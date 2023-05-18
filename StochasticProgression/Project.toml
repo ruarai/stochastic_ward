@@ -1,0 +1,7 @@
+[deps]
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+KissABC = "9c9dad79-530a-4643-a18b-2704674d4108"
+ParticleFilters = "c8b314e2-9260-5cf8-ae76-3be7461ca6d0"
+RCall = "6f49c342-dc21-5d91-9882-a32aef131414"
+StatsFuns = "4c63d2b9-4356-54db-8cca-17b64c39e42c"
+Suppressor = "fd094767-a336-5f1f-9728-57cf17d0bbfb"
