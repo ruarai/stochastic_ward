@@ -87,12 +87,13 @@ struct pf_state
     n_steps_per_day::Int32
 
     adj_pr_hosp::Float64
-    adj_los_scale::Float64
-    adj_los_shape::Float64
+    adj_los::Float64
 
     group_params::Vector{group_parameters}
     time_varying_estimates::NamedTuple{(:pr_age_given_case, :pr_hosp, :pr_ICU), Tuple{Matrix{Float64}, Matrix{Float64}, Matrix{Float64}}}
     case_curve::Vector{Int32}
+
+    epidemic::ward_epidemic
 end
 
 function pf_step(xt, u, rng)
@@ -104,7 +105,7 @@ function pf_step(xt, u, rng)
     for t in t_start:(t_start + n_steps_per_day - 1)
         for a in 1:def_n_age_groups
             group_params = xt.group_params[a]
-            group_samples = make_delay_samples(group_params, 512, n_steps_per_day, xt.adj_los_shape, xt.adj_los_scale)
+            group_samples = make_delay_samples(group_params, 512, n_steps_per_day, xt.adj_los)
 
             if t % n_steps_per_day == 1
                 d = ((t - 1) ÷ n_steps_per_day) + 1
@@ -141,6 +142,8 @@ function pf_step(xt, u, rng)
         end
     end
 
+    stepped_epidemic = step_ward_epidemic(xt.epidemic, xt.case_curve[((t_start - 1) ÷ n_steps_per_day) + 1])
+
     
     return pf_state(
         arr_all,
@@ -149,20 +152,21 @@ function pf_step(xt, u, rng)
         xt.n_steps_per_day,
 
         xt.adj_pr_hosp + rand(Normal(0, 0.02)),
-        xt.adj_los_scale + rand(Normal(0, 0.02)),
-        xt.adj_los_shape + rand(Normal(0, 0.02)),
+        xt.adj_los + rand(Normal(0, 0.02)),
 
         xt.group_params,
         xt.time_varying_estimates,
-        xt.case_curve
+        xt.case_curve,
+
+        stepped_epidemic
     )
 end
 
 
 
 function pf_prob_obs(xt, ut, xt1, yt1)
-    sim_ward = get_total_ward_occupancy(xt1.arr_all, xt1.t - 1)
-    sim_ICU = get_total_ICU_occupancy(xt1.arr_all, xt1.t - 1)
+    sim_ward = get_total_ward_occupancy(xt1, xt1.t - 1)
+    sim_ICU = get_total_ICU_occupancy(xt1, xt1.t - 1)
 
     true_ward = yt1[1]
     true_ICU = yt1[2]
@@ -172,12 +176,23 @@ end
 
 
 
-function get_total_ward_occupancy(arr_all, t)
+function get_total_ward_occupancy(pf_state, t)
+    arr_all = pf_state.arr_all
+
     return sum(arr_all[:, t, c_ward, s_occupancy]) + 
         sum(arr_all[:, t, c_postICU_to_death, s_occupancy]) + 
-        sum(arr_all[:, t, c_postICU_to_discharge, s_occupancy])
+        sum(arr_all[:, t, c_postICU_to_discharge, s_occupancy]) +
+
+        pf_state.epidemic.I + pf_state.epidemic.Q
 end
 
-function get_total_ICU_occupancy(arr_all, t)
+
+function get_outbreak_occupancy(pf_state, t)
+    return pf_state.epidemic.I + pf_state.epidemic.Q
+end
+
+function get_total_ICU_occupancy(pf_state, t)
+    arr_all = pf_state.arr_all
+
     return sum(arr_all[:, t, c_ICU, s_occupancy])
 end

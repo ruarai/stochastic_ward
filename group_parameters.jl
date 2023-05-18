@@ -43,33 +43,33 @@ function sample_delay_dist(dist, n_samples, n_steps_per_day)
     return round.(Int32, rand(dist, n_samples) .* n_steps_per_day)
 end
 
-function adj_gamma(dist, adj_los_shape, adj_los_scale)
+function adj_gamma(dist, adj_los)
     shape = dist.α
     scale = dist.θ
 
-    shape_adj = exp(log(shape) + adj_los_shape)
-    scale_adj = exp(log(scale) + adj_los_scale)
+    shape_adj = exp(log(shape) + adj_los / 2)
+    scale_adj = exp(log(scale) + adj_los / 2)
 
     return Gamma(shape_adj, scale_adj)
 end
 
 function make_delay_samples(
     group_params, n_samples, n_steps_per_day,
-    adj_los_shape, adj_los_scale
+    adj_los
 )
     group_delay_samples(
         sample_delay_dist(group_params.dist_symptomatic_to_ward, n_samples, n_steps_per_day),
 
-        sample_delay_dist(adj_gamma(group_params.dist_ward_to_discharge, adj_los_shape, adj_los_scale) , n_samples, n_steps_per_day),
-        sample_delay_dist(adj_gamma(group_params.dist_ward_to_death, adj_los_shape, adj_los_scale) , n_samples, n_steps_per_day),
-        sample_delay_dist(adj_gamma(group_params.dist_ward_to_ICU, adj_los_shape, adj_los_scale) , n_samples, n_steps_per_day),
+        sample_delay_dist(adj_gamma(group_params.dist_ward_to_discharge, adj_los) , n_samples, n_steps_per_day),
+        sample_delay_dist(adj_gamma(group_params.dist_ward_to_death, adj_los) , n_samples, n_steps_per_day),
+        sample_delay_dist(adj_gamma(group_params.dist_ward_to_ICU, adj_los) , n_samples, n_steps_per_day),
 
         sample_delay_dist(group_params.dist_ICU_to_death, n_samples, n_steps_per_day),
         sample_delay_dist(group_params.dist_ICU_to_postICU, n_samples, n_steps_per_day),
         sample_delay_dist(group_params.dist_ICU_to_discharge, n_samples, n_steps_per_day),
 
-        sample_delay_dist(adj_gamma(group_params.dist_postICU_to_death, adj_los_shape, adj_los_scale) , n_samples, n_steps_per_day),
-        sample_delay_dist(adj_gamma(group_params.dist_postICU_to_discharge, adj_los_shape, adj_los_scale) , n_samples, n_steps_per_day)
+        sample_delay_dist(adj_gamma(group_params.dist_postICU_to_death, adj_los) , n_samples, n_steps_per_day),
+        sample_delay_dist(adj_gamma(group_params.dist_postICU_to_discharge, adj_los) , n_samples, n_steps_per_day)
     )
 
 end

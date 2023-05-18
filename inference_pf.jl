@@ -8,6 +8,9 @@ using ParticleFilters
 
 include("globals.jl")
 include("group_parameters.jl")
+
+include("ward_epidemic.jl")
+
 include("progression.jl")
 include("progression_pf.jl")
 
@@ -55,12 +58,12 @@ function run_inference(
     );
 
     sim_ward = zeros(n_days, num_particles)
+    sim_ward_outbreak = zeros(n_days, num_particles)
     sim_ICU = zeros(n_days, num_particles)
 
 
     selected_adj_pr_hosp = zeros(n_days, num_particles)
-    selected_adj_los_scale = zeros(n_days, num_particles)
-    selected_adj_los_shape = zeros(n_days, num_particles)
+    selected_adj_los = zeros(n_days, num_particles)
     selected_cases = zeros(n_days, num_particles)
 
     for d in 1:n_days
@@ -85,12 +88,12 @@ function run_inference(
 
             t = (d - 1) * n_steps_per_day + 1
 
-            sim_ward[d, p] = get_total_ward_occupancy(particle_p.arr_all, t)
-            sim_ICU[d, p] = get_total_ICU_occupancy(particle_p.arr_all, t)
+            sim_ward[d, p] = get_total_ward_occupancy(particle_p, t)
+            sim_ward_outbreak[d, p] = get_outbreak_occupancy(particle_p, t)
+            sim_ICU[d, p] = get_total_ICU_occupancy(particle_p, t)
 
             selected_adj_pr_hosp[d, p] = particle_p.adj_pr_hosp
-            selected_adj_los_scale[d, p] = particle_p.adj_los_scale
-            selected_adj_los_shape[d, p] = particle_p.adj_los_shape
+            selected_adj_los[d, p] = particle_p.adj_los
 
 
             selected_cases[d, p] = particle_p.case_curve[d]
@@ -101,10 +104,10 @@ function run_inference(
 
     return (
         sim_ward = sim_ward, sim_ICU = sim_ICU,
+        sim_ward_outbreak = sim_ward_outbreak,
         selected_adj_pr_hosp = selected_adj_pr_hosp,
-        selected_adj_los_scale,
-        selected_adj_los_shape,
-        selected_cases
+        selected_adj_los = selected_adj_los,
+        selected_cases = selected_cases
     )
 
 end
@@ -120,8 +123,7 @@ function create_prior(
     case_curve = case_curves[:, sample(1:size(case_curves, 2))]
 
     adj_pr_hosp = rand(Normal(0, 0.4))
-    adj_los_shape = rand(Normal(0, 0.4))
-    adj_los_scale = rand(Normal(0, 0.4))
+    adj_los = rand(Normal(0, 0.4))
 
     return pf_state(
         zeros(def_n_age_groups, n_steps, def_n_compartments, def_n_slots),
@@ -129,11 +131,12 @@ function create_prior(
         n_steps,
         n_steps_per_day,
         adj_pr_hosp,
-        adj_los_scale,
-        adj_los_shape,
+        adj_los,
         group_param_sample,
         time_varying_sample,
-        case_curve
+        case_curve,
+
+        ward_epidemic(0, 0, 0)
     )
 end
 
@@ -150,12 +153,13 @@ function reinitialise_case_curves(particles, num_particles, case_curves)
             pf_state_old.n_steps_per_day,
 
             pf_state_old.adj_pr_hosp,
-            pf_state_old.adj_los_scale,
-            pf_state_old.adj_los_shape,
+            pf_state_old.adj_los,
 
             pf_state_old.group_params,
             pf_state_old.time_varying_estimates,
-            case_curves[:, sample(1:size(case_curves, 2))]
+            case_curves[:, sample(1:size(case_curves, 2))],
+
+            ward_epidemic(pf_state_old.epidemic.S, pf_state_old.epidemic.I, pf_state_old.epidemic.Q)
         )
     end
 
