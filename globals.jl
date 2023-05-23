@@ -2,6 +2,9 @@ global def_n_compartments::Int32 = 11
 global def_n_slots::Int32 = 2
 global def_n_age_groups::Int32 = 9
 
+global def_n_ward_epidemic::Int32 = 4
+global ward_steady_state_size::Int32 = 50
+
 
 global age_groups = [
     "0-9", "10-19", "20-29", "30-39", "40-49",

@@ -3,8 +3,6 @@ struct LowVarianceResamplerDebug
 end
 
 function ParticleFilters.resample(re::LowVarianceResamplerDebug, b::AbstractParticleBelief{S}, rng::AbstractRNG) where {S}
-    println(weight_sum(b))
-
     ps = Array{S}(undef, re.n)
     r = rand(rng)*weight_sum(b)/re.n
     c = weight(b,1)
