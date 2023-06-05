@@ -46,9 +46,10 @@ function ParticleFilters.update(up::BasicParticleFilter2, b::ParticleCollection,
 
     weight_std = wm ./ sum(wm)
 
-    num_eff = sum(weight_std) / sum(weight_std .^ 2)
+    num_eff = 1 / sum(weight_std .^ 2)
 
-    println("N_eff = $num_eff")
+    #println("N_eff = $num_eff")
+
 
     resampled_particles = resample(
         up.resampler,
@@ -59,13 +60,15 @@ function ParticleFilters.update(up::BasicParticleFilter2, b::ParticleCollection,
         up.rng
     )
 
-    weights_after_resample = get_weights(up.reweight_model, resampled_particles, ctx, o)
+    # weights_after_resample = get_weights(up.reweight_model, resampled_particles, ctx, o)
 
-    post_regularised_particles = post_regularise(
-        resampled_particles, weights_after_resample, up.rng
-    )
+    # post_regularised_particles = post_regularise(
+    #     resampled_particles, weights_after_resample, up.rng
+    # )
 
-    return post_regularised_particles
+    return resampled_particles
+
+
 end
 
 function Random.seed!(f::BasicParticleFilter2, seed)

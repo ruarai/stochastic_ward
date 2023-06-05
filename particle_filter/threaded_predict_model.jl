@@ -9,7 +9,7 @@ function ParticleFilters.predict!(pm, m::ThreadedPredictModel, b, u, rng)
     Threads.@threads for i in 1:ParticleFilters.n_particles(b)
         rng_thread = Random.MersenneTwister()
         x1 = particle(b, i)
-        pm[i] = m.f(x1, u, rng_thread)
+        pm[i] = m.f(x1, u, i, rng_thread)
     end
 end
 

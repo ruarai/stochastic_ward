@@ -81,22 +81,23 @@ function process_age_group(
 end
 
 
-function pf_step(state, ctx, rng)
+function pf_step(state, ctx, p_ix, rng)
     arr_all = copy(state.arr_all)
 
     t_start = ctx.t
     n_steps = ctx.n_steps
     n_steps_per_day = ctx.n_steps_per_day
 
-    for t in t_start:(t_start + n_steps_per_day - 1)
-        for a in 1:def_n_age_groups
-            group_params = ctx.group_params[a]
-            group_samples = make_delay_samples(group_params, 512, n_steps_per_day, state.adj_los)
+    for a in 1:def_n_age_groups
+        group_params = ctx.group_params[a]
+        group_samples = get_cached_samples(ctx.delay_samples_cache[a], state.adj_los)
 
+
+        for t in t_start:(t_start + n_steps_per_day - 1)
             if t % n_steps_per_day == 1
                 d = ((t - 1) ÷ n_steps_per_day) + 1
 
-                cases = state.case_curve[d]
+                cases = ctx.case_curves[p_ix][d]
                 pr_age_and_hosp = logistic(
                     state.adj_pr_hosp +
                     logit.(
@@ -130,27 +131,47 @@ function pf_step(state, ctx, rng)
 
     stepped_epidemic = step_ward_epidemic(
         state.epidemic,
-        state.case_curve[((t_start - 1) ÷ n_steps_per_day) + 1]
-        state.ward_importation_rate,
-        state.ward_clearance_rate
+        ctx.case_curves[p_ix][((t_start - 1) ÷ n_steps_per_day) + 1],
+        state.log_ward_importation_rate,
+        state.log_ward_clearance_rate
     )
+
+    if ctx.is_forecast
+        return pf_state(
+            arr_all,
+    
+            state.adj_pr_hosp,
+            state.adj_los,
+    
+            state.log_ward_importation_rate,
+            state.log_ward_clearance_rate,
+    
+            stepped_epidemic
+        )
+    else
+        return pf_state(
+            arr_all,
+    
+            state.adj_pr_hosp + rand(Normal(0, 0.05)),
+            state.adj_los + rand(Normal(0, 0.05)),
+    
+            state.log_ward_importation_rate + rand(Normal(0, 0.01)),
+            state.log_ward_clearance_rate + rand(Normal(0, 0.01)),
+    
+            stepped_epidemic
+        )
+    end
 
     
-    return pf_state(
-        arr_all,
 
-        state.adj_pr_hosp,
-        state.adj_los,
-
-        state.ward_importation_rate,
-        state.ward_clearance_rate,
-
-        state.case_curve,
-
-        stepped_epidemic
-    )
 end
 
+
+function observation_model(mean)
+    #return TruncatedNormal(mean, 1 + mean * 0.1, 0, Inf)
+
+    return Poisson(mean + 0.1)
+end
 
 
 function pf_prob_obs(xt, ctx, xt1, yt1)
@@ -160,28 +181,48 @@ function pf_prob_obs(xt, ctx, xt1, yt1)
     true_ward = yt1[1]
     true_ICU = yt1[2]
     
-    return pdf(Poisson(true_ward + 0.1), sim_ward) * pdf(Poisson(true_ICU + 0.1), sim_ICU)
+    return pdf(observation_model(true_ward), sim_ward) * pdf(observation_model(true_ICU), sim_ICU)
 end
 
 
-
-function get_total_ward_occupancy(pf_state, t)
-    arr_all = pf_state.arr_all
-
-    return sum(arr_all[:, t, c_ward, s_occupancy]) + 
-        sum(arr_all[:, t, c_postICU_to_death, s_occupancy]) + 
-        sum(arr_all[:, t, c_postICU_to_discharge, s_occupancy]) +
-
-        sum(pf_state.epidemic.Q)
-end
 
 
 function get_outbreak_occupancy(pf_state, t)
     return sum(pf_state.epidemic.Q)
 end
 
+function get_progression_occupancy(pf_state, t)
+    arr_all = pf_state.arr_all
+
+    return sum(arr_all[:, t, c_ward, s_occupancy]) + 
+        sum(arr_all[:, t, c_postICU_to_death, s_occupancy]) + 
+        sum(arr_all[:, t, c_postICU_to_discharge, s_occupancy]) 
+end
+
+function get_total_ward_occupancy(pf_state, t)
+    return get_outbreak_occupancy(pf_state, t) + get_progression_occupancy(pf_state, t)
+end
+
+
 function get_total_ICU_occupancy(pf_state, t)
     arr_all = pf_state.arr_all
 
     return sum(arr_all[:, t, c_ICU, s_occupancy])
+end
+
+function get_sim_progression_occupancy(pf_state, t)
+    return round(Int64, rand(observation_model(get_progression_occupancy(pf_state, t))))
+end
+
+function get_sim_outbreak_occupancy(pf_state, t)
+    return round(Int64, rand(observation_model(get_outbreak_occupancy(pf_state, t))))
+end
+
+function get_sim_total_ward_occupancy(pf_state, t)
+    return get_sim_progression_occupancy(pf_state, t) + 
+        get_sim_outbreak_occupancy(pf_state, t)
+end
+
+function get_sim_total_ICU_occupancy(pf_state, t)
+    return round(Int64, rand(observation_model(get_total_ICU_occupancy(pf_state, t))))
 end

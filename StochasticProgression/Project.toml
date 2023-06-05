@@ -1,5 +1,6 @@
 [deps]
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
 KissABC = "9c9dad79-530a-4643-a18b-2704674d4108"
 ParticleFilters = "c8b314e2-9260-5cf8-ae76-3be7461ca6d0"
 RCall = "6f49c342-dc21-5d91-9882-a32aef131414"

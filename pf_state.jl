@@ -5,10 +5,8 @@ struct pf_state
     adj_pr_hosp::Float64
     adj_los::Float64
 
-    ward_importation_rate::Float64
-    ward_clearance_rate::Float64
-
-    case_curve::Vector{Int32}
+    log_ward_importation_rate::Float64
+    log_ward_clearance_rate::Float64
 
     epidemic::ward_epidemic
 end

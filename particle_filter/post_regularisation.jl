@@ -19,6 +19,9 @@ function post_regularise(particle_collection, weights, rng)
 
         x[p, 1] = particle_p.adj_pr_hosp
         x[p, 2] = particle_p.adj_los
+
+        #x[p, 3] = particle_p.log_ward_importation_rate
+        #x[p, 4] = particle_p.log_ward_clearance_rate
     end
 
     cov_mat = cov(x, StatsBase.Weights(weights))
@@ -38,11 +41,13 @@ function post_regularise(particle_collection, weights, rng)
             pf_state_old.adj_pr_hosp + scaled_samples[p, 1],
             pf_state_old.adj_los + scaled_samples[p, 2],
 
+            pf_state_old.log_ward_importation_rate,# + scaled_samples[p, 3],
+            pf_state_old.log_ward_clearance_rate,# + scaled_samples[p, 4],
+
             pf_state_old.case_curve,
 
             ward_epidemic(
-                pf_state_old.epidemic.S, pf_state_old.epidemic.I, pf_state_old.epidemic.Q,
-                pf_state_old.epidemic.importation_rate, pf_state_old.epidemic.clearance_rate
+                pf_state_old.epidemic.S, pf_state_old.epidemic.I, pf_state_old.epidemic.Q
             )
         )
     end

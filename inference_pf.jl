@@ -16,6 +16,8 @@ include("progression_pf.jl")
 
 include("particle_filter/includes.jl")
 
+include("group_delay_samples_cache.jl")
+
 include("pf_state.jl")
 include("pf_context.jl")
 
@@ -45,6 +47,9 @@ function run_inference(
     group_params = read_group_parameter_samples(group_parameters_table)
     time_varying_estimates = read_time_varying_estimates(time_varying_estimates_table, n_days)
     
+    forecast_start_day = get_forecast_start_day(true_occupancy_matrix[:, 1])
+
+    samples_cache = make_cached_samples(group_params[1], n_steps_per_day)
 
     rng = MersenneTwister()
 
@@ -55,9 +60,13 @@ function run_inference(
     filter = BasicParticleFilter2(predict_model, reweight_model, resample_model, num_particles, MersenneTwister())
 
     # Create the ParticleCollection, initialising values from the prior distribution
-    particle_collection = ParticleCollection(
-        [create_prior(case_curves, n_steps, n_steps_per_day) for i in 1:num_particles]
-    );
+    particle_collection = ParticleCollection([create_prior(n_steps) for i in 1:num_particles]);
+
+    context_case_curves = Array{Array{Int32}}(undef, num_particles)
+    for i in 1:num_particles
+        context_case_curves[i] = case_curves[:, sample(1:size(case_curves, 2))]
+    end
+
 
     results_table = DataFrame(
         particle = Int[],
@@ -65,14 +74,14 @@ function run_inference(
 
         sim_ward = Int[],
         sim_ward_outbreak = Int[], 
+        sim_ward_progression = Int[],
         sim_ICU = Int[],
 
         adj_pr_hosp = Float64[],
         adj_los = Float64[],
-        cases = Float64[],
 
-        importation_rate = Float64[],
-        clearance_rate = Float64[],
+        log_importation_rate = Float64[],
+        log_clearance_rate = Float64[],
 
         weight = Float64[]
     )
@@ -80,28 +89,24 @@ function run_inference(
     weights_memory = zeros(num_particles)
 
     for d in 1:n_days
+        if d % 25 == 0
+            println("Stepping at day $d")
+        end
 
         t = (d - 1) * n_steps_per_day + 1
 
+        is_forecast = d >= forecast_start_day
+
         ctx_day = pf_context(
             n_steps_per_day, n_steps, t,
-            time_varying_estimates[1], group_params[1]
+            time_varying_estimates[1], group_params[1],
+            is_forecast, samples_cache, context_case_curves
         )
 
-
-        if d == n_days - 28
-            println("Reinitialising case curves across particles")
-            particle_collection = reinitialise_case_curves(particle_collection, num_particles, case_curves)
-        end
-
-
         if true_occupancy_matrix[d, 1] < -0.5
-            println("Stepping without inference at day $d")
-
             next_step = predict(filter, particle_collection, ctx_day, rng)
             particle_collection = ParticleCollection(next_step)
         else
-            println("Stepping with inference at day $d")
             particle_collection = update(filter, particle_collection, ctx_day, true_occupancy_matrix[d, :])
 
             weights_memory = get_weights(reweight_model, particle_collection, ctx_day, true_occupancy_matrix[d, :])
@@ -117,14 +122,14 @@ function run_inference(
                     :particle => p,
                     :day => d,
 
-                    :sim_ward => get_total_ward_occupancy(particle_p, t),
-                    :sim_ward_outbreak => get_outbreak_occupancy(particle_p, t),
-                    :sim_ICU => get_total_ICU_occupancy(particle_p, t),
+                    :sim_ward => get_sim_total_ward_occupancy(particle_p, t),
+                    :sim_ward_outbreak => get_sim_outbreak_occupancy(particle_p, t),
+                    :sim_ward_progression => get_sim_progression_occupancy(particle_p, t),
+                    :sim_ICU => get_sim_total_ICU_occupancy(particle_p, t),
                     :adj_pr_hosp => particle_p.adj_pr_hosp,
                     :adj_los => particle_p.adj_los,
-                    :clearance_rate => particle_p.epidemic.clearance_rate,
-                    :importation_rate => particle_p.epidemic.importation_rate,
-                    :cases => particle_p.case_curve[d],
+                    :log_clearance_rate => particle_p.log_ward_clearance_rate,
+                    :log_importation_rate => particle_p.log_ward_importation_rate,
                     :weight => weights_memory[p]
                 )
             )
@@ -137,53 +142,54 @@ function run_inference(
 end
 
 function create_prior(
-    case_curves, n_steps, n_steps_per_day
+    n_steps
 )
-    case_curve = case_curves[:, 1]
 
     adj_pr_hosp = rand(Normal(0, 0.4))
     adj_los = rand(Normal(0, 0.4))
 
-    epidemic_importation_rate = rand(LogNormal(-8, 1))
-    clearance_rate = 1 / rand(TruncatedNormal(7, 4, 3, 14))
+    log_ward_importation_rate = rand(Normal(-8, 1))
+    log_ward_clearance_rate = log(1 / rand(TruncatedNormal(7, 4, 3, 14)))
 
     return pf_state(
         zeros(def_n_age_groups, n_steps, def_n_compartments, def_n_slots),
 
         adj_pr_hosp, adj_los,
-
-        case_curve,
+        log_ward_importation_rate, log_ward_clearance_rate,
 
         ward_epidemic(
-            fill(ward_steady_state_size, def_n_ward_epidemic), zeros(Int64, def_n_ward_epidemic), zeros(Int64, def_n_ward_epidemic),
-            epidemic_importation_rate, clearance_rate
+            fill(ward_steady_state_size, def_n_ward_epidemic),
+            zeros(Int64, def_n_ward_epidemic),
+            zeros(Int64, def_n_ward_epidemic),
         )
     )
 end
 
-function reinitialise_case_curves(particles, num_particles, case_curves)
-    particle_vec = Vector{pf_state}(undef, num_particles)
+# function reinitialise_case_curves(particles, num_particles, case_curves)
+#     particle_vec = Vector{pf_state}(undef, num_particles)
 
-    for i in 1:num_particles
-        pf_state_old = particle(particles, i)
+#     for i in 1:num_particles
+#         pf_state_old = particle(particles, i)
 
-        particle_vec[i] = pf_state(
-            pf_state_old.arr_all,
+#         particle_vec[i] = pf_state(
+#             pf_state_old.arr_all,
 
-            pf_state_old.adj_pr_hosp,
-            pf_state_old.adj_los,
+#             pf_state_old.adj_pr_hosp,
+#             pf_state_old.adj_los,
 
-            case_curves[:, sample(1:size(case_curves, 2))],
+#             pf_state_old.log_ward_importation_rate,
+#             pf_state_old.log_ward_clearance_rate,
 
-            ward_epidemic(
-                pf_state_old.epidemic.S, pf_state_old.epidemic.I, pf_state_old.epidemic.Q,
-                pf_state_old.epidemic.importation_rate, pf_state_old.epidemic.clearance_rate
-            )
-        )
-    end
+#             case_curves[:, sample(1:size(case_curves, 2))],
 
-    return ParticleCollection(particle_vec)
-end
+#             ward_epidemic(
+#                 pf_state_old.epidemic.S, pf_state_old.epidemic.I, pf_state_old.epidemic.Q
+#             )
+#         )
+#     end
+
+#     return ParticleCollection(particle_vec)
+# end
 
 
 function read_group_parameter_samples(group_parameters_table)
@@ -261,4 +267,14 @@ function read_time_varying_estimates(time_varying_estimates_table, n_days)
 
     return out_samples
     
+end
+
+
+function get_forecast_start_day(occ_data)
+    for i in reverse(2:length(occ_data))
+        if occ_data[i] < -0.5 && occ_data[i - 1] > -0.5
+            return i
+        end
+    end
+    return -1
 end
