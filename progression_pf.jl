@@ -17,13 +17,14 @@ function process_age_group(
         # counted at arr[ix(t - 1, c, s_occupancy)]
         # plus/minus any transitions (counted by arr[ix(t, c, s_occupancy)])
         if t > 1
-            arr[t, c, s_occupancy] = arr[t, c, s_occupancy] + arr[t - 1, c, s_occupancy]
+            arr[t, c, s_occupancy] += arr[t - 1, c, s_occupancy]
         end
 
         # Also increment occupancy by number of inward transitions
-        arr[t, c, s_occupancy] = arr[t, c, s_occupancy] + arr[t, c, s_transitions]
+        arr[t, c, s_occupancy] += arr[t, c, s_transitions]
     end
 
+    
     transition_delay(
         c_symptomatic, c_ward,
         arr[t, c_symptomatic, s_transitions],
@@ -146,7 +147,9 @@ function pf_step(state, ctx, p_ix, rng)
             state.log_ward_importation_rate,
             state.log_ward_clearance_rate,
     
-            stepped_epidemic
+            stepped_epidemic,
+
+            state.obs_c
         )
     else
         return pf_state(
@@ -158,7 +161,9 @@ function pf_step(state, ctx, p_ix, rng)
             state.log_ward_importation_rate + rand(Normal(0, 0.01)),
             state.log_ward_clearance_rate + rand(Normal(0, 0.01)),
     
-            stepped_epidemic
+            stepped_epidemic,
+
+            state.obs_c + rand(Normal(0, 0.05))
         )
     end
 
@@ -167,10 +172,10 @@ function pf_step(state, ctx, p_ix, rng)
 end
 
 
-function observation_model(mean)
-    #return TruncatedNormal(mean, 1 + mean * 0.1, 0, Inf)
+function observation_model(mean, obs_c)
+    return TruncatedNormal(mean, 1 + mean * exp(obs_c), 0, Inf)
 
-    return Poisson(mean + 0.1)
+    #return Poisson(mean + 0.1)
 end
 
 
@@ -180,8 +185,10 @@ function pf_prob_obs(xt, ctx, xt1, yt1)
 
     true_ward = yt1[1]
     true_ICU = yt1[2]
+
+    c = xt1.obs_c
     
-    return pdf(observation_model(true_ward), sim_ward) * pdf(observation_model(true_ICU), sim_ICU)
+    return pdf(observation_model(true_ward, c), sim_ward) * pdf(observation_model(true_ICU, c), sim_ICU)
 end
 
 
@@ -211,11 +218,15 @@ function get_total_ICU_occupancy(pf_state, t)
 end
 
 function get_sim_progression_occupancy(pf_state, t)
-    return round(Int64, rand(observation_model(get_progression_occupancy(pf_state, t))))
+    c = pf_state.obs_c
+
+    return round(Int64, rand(observation_model(get_progression_occupancy(pf_state, t), c)))
 end
 
 function get_sim_outbreak_occupancy(pf_state, t)
-    return round(Int64, rand(observation_model(get_outbreak_occupancy(pf_state, t))))
+    c = pf_state.obs_c
+    
+    return round(Int64, rand(observation_model(get_outbreak_occupancy(pf_state, t), c)))
 end
 
 function get_sim_total_ward_occupancy(pf_state, t)
@@ -224,5 +235,7 @@ function get_sim_total_ward_occupancy(pf_state, t)
 end
 
 function get_sim_total_ICU_occupancy(pf_state, t)
-    return round(Int64, rand(observation_model(get_total_ICU_occupancy(pf_state, t))))
+    c = pf_state.obs_c
+
+    return round(Int64, rand(observation_model(get_total_ICU_occupancy(pf_state, t), c)))
 end

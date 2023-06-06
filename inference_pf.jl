@@ -22,7 +22,7 @@ include("pf_state.jl")
 include("pf_context.jl")
 
 
-
+# The primary function for calling the particle filter from R
 function run_inference(
     n_days,
     n_steps_per_day,
@@ -35,13 +35,13 @@ function run_inference(
 
     true_occupancy_matrix
 )
-
+    # Julia and R do not play along nicely with these parameters. Ensure they are rounded integers.
     n_days = round(Int32, n_days)
     n_steps_per_day = round(Int32, n_steps_per_day)
+    num_particles = round(Int64, num_particles)
 
     n_steps = n_days * n_steps_per_day
 
-    num_particles = round(Int64, num_particles)
 
     # Load in the bootstrapped data
     group_params = read_group_parameter_samples(group_parameters_table)
@@ -62,11 +62,11 @@ function run_inference(
     # Create the ParticleCollection, initialising values from the prior distribution
     particle_collection = ParticleCollection([create_prior(n_steps) for i in 1:num_particles]);
 
+    # Produce a set of case curves that will be associated with a particle index (and not actually selected for)
     context_case_curves = Array{Array{Int32}}(undef, num_particles)
     for i in 1:num_particles
         context_case_curves[i] = case_curves[:, sample(1:size(case_curves, 2))]
     end
-
 
     results_table = DataFrame(
         particle = Int[],
@@ -83,36 +83,42 @@ function run_inference(
         log_importation_rate = Float64[],
         log_clearance_rate = Float64[],
 
+        obs_c = Float64[],
+
         weight = Float64[]
     )
 
     weights_memory = zeros(num_particles)
 
+    # Primary simulation loop
     for d in 1:n_days
         if d % 25 == 0
             println("Stepping at day $d")
         end
 
         t = (d - 1) * n_steps_per_day + 1
-
         is_forecast = d >= forecast_start_day
 
+        # Simulation context for day d
         ctx_day = pf_context(
             n_steps_per_day, n_steps, t,
             time_varying_estimates[1], group_params[1],
             is_forecast, samples_cache, context_case_curves
         )
 
+        # Decide whether to step forward without resampling (when no observation is available)
+        # or with resampling (where an observation is present)
         if true_occupancy_matrix[d, 1] < -0.5
             next_step = predict(filter, particle_collection, ctx_day, rng)
             particle_collection = ParticleCollection(next_step)
         else
             particle_collection = update(filter, particle_collection, ctx_day, true_occupancy_matrix[d, :])
 
+            # Only update the weights in memory when we step with an observation
             weights_memory = get_weights(reweight_model, particle_collection, ctx_day, true_occupancy_matrix[d, :])
         end
 
-
+        # Save the results
         for p in 1:num_particles
             particle_p = particle(particle_collection, p)
 
@@ -130,13 +136,12 @@ function run_inference(
                     :adj_los => particle_p.adj_los,
                     :log_clearance_rate => particle_p.log_ward_clearance_rate,
                     :log_importation_rate => particle_p.log_ward_importation_rate,
+                    :obs_c => particle_p.obs_c,
                     :weight => weights_memory[p]
                 )
             )
         end
     end
-
-
 
     return results_table
 end
@@ -151,6 +156,8 @@ function create_prior(
     log_ward_importation_rate = rand(Normal(-8, 1))
     log_ward_clearance_rate = log(1 / rand(TruncatedNormal(7, 4, 3, 14)))
 
+    obs_c = rand(Normal(-2, 1))
+
     return pf_state(
         zeros(def_n_age_groups, n_steps, def_n_compartments, def_n_slots),
 
@@ -161,35 +168,11 @@ function create_prior(
             fill(ward_steady_state_size, def_n_ward_epidemic),
             zeros(Int64, def_n_ward_epidemic),
             zeros(Int64, def_n_ward_epidemic),
-        )
+        ),
+
+        obs_c
     )
 end
-
-# function reinitialise_case_curves(particles, num_particles, case_curves)
-#     particle_vec = Vector{pf_state}(undef, num_particles)
-
-#     for i in 1:num_particles
-#         pf_state_old = particle(particles, i)
-
-#         particle_vec[i] = pf_state(
-#             pf_state_old.arr_all,
-
-#             pf_state_old.adj_pr_hosp,
-#             pf_state_old.adj_los,
-
-#             pf_state_old.log_ward_importation_rate,
-#             pf_state_old.log_ward_clearance_rate,
-
-#             case_curves[:, sample(1:size(case_curves, 2))],
-
-#             ward_epidemic(
-#                 pf_state_old.epidemic.S, pf_state_old.epidemic.I, pf_state_old.epidemic.Q
-#             )
-#         )
-#     end
-
-#     return ParticleCollection(particle_vec)
-# end
 
 
 function read_group_parameter_samples(group_parameters_table)

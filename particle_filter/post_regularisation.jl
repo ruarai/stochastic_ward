@@ -48,7 +48,9 @@ function post_regularise(particle_collection, weights, rng)
 
             ward_epidemic(
                 pf_state_old.epidemic.S, pf_state_old.epidemic.I, pf_state_old.epidemic.Q
-            )
+            ),
+
+            pf_state_old.obs_c
         )
     end
 

@@ -1,5 +1,9 @@
 
 
+
+## Helper functions for processing the primary progression loop
+
+# Step forward from c_from to c_to, according to delay_samples
 function transition_delay(
     c_from, c_to,
     n_to_transition,
@@ -11,23 +15,28 @@ function transition_delay(
 
     rng
 )
-
+    # Loop over the number of transitions to occur
     for i in 1:n_to_transition
-        d = sample(rng, delay_samples)
 
+        # Sample our time to transition from delay_samples
+        d = sample(rng, delay_samples)
+        
+        # Calculate the time step the transition will occur
+        # Note the offset by 1 (as instantaneous transitions cannot be handled)
+        # This introduces a slight 1 / n_steps_per_day error.
         t_set = d + t + 1
 
+        # If the transition occurs after the simulation period, ignore it!
         if t_set > n_steps
             continue
         end
 
         arr[t_set, c_to, s_transitions] += 1
         arr[t_set, c_from, s_occupancy] -= 1
-
     end
 end
 
-
+# Step forward from c_ward, with multiple possible outcomes
 function transition_ward_next(
     t,
     arr,
@@ -45,6 +54,7 @@ function transition_ward_next(
     n_to_death = 0
     n_to_ICU = 0
 
+    # Manual multinomial sampling (yuk)
     for i in 1:n_to_transition
         sample_a = rand(rng)
 
@@ -87,6 +97,7 @@ function transition_ward_next(
 
 end
 
+# Step forward from c_ICU, with multiple possible outcomes
 function transition_ICU_next(
     t,
     arr,
@@ -104,6 +115,7 @@ function transition_ICU_next(
     n_to_postICU_death = 0
     n_to_postICU_discharge = 0
 
+    # Manual multinomial sampling again (yuk, yuk)
     for i in 1:n_to_transition
         sample_a = rand(rng)
 
