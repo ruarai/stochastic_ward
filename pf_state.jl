@@ -16,7 +16,4 @@ struct pf_state
 
     # The state of the 'within-hospital outbreaks' component
     epidemic::ward_epidemic
-
-
-    obs_c::Float64
 end

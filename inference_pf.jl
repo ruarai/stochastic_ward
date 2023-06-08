@@ -83,8 +83,6 @@ function run_inference(
         log_importation_rate = Float64[],
         log_clearance_rate = Float64[],
 
-        obs_c = Float64[],
-
         weight = Float64[]
     )
 
@@ -136,7 +134,6 @@ function run_inference(
                     :adj_los => particle_p.adj_los,
                     :log_clearance_rate => particle_p.log_ward_clearance_rate,
                     :log_importation_rate => particle_p.log_ward_importation_rate,
-                    :obs_c => particle_p.obs_c,
                     :weight => weights_memory[p]
                 )
             )
@@ -156,8 +153,6 @@ function create_prior(
     log_ward_importation_rate = rand(Normal(-8, 1))
     log_ward_clearance_rate = log(1 / rand(TruncatedNormal(7, 4, 3, 14)))
 
-    obs_c = rand(Normal(-2, 1))
-
     return pf_state(
         zeros(def_n_age_groups, n_steps, def_n_compartments, def_n_slots),
 
@@ -168,9 +163,7 @@ function create_prior(
             fill(ward_steady_state_size, def_n_ward_epidemic),
             zeros(Int64, def_n_ward_epidemic),
             zeros(Int64, def_n_ward_epidemic),
-        ),
-
-        obs_c
+        )
     )
 end
 

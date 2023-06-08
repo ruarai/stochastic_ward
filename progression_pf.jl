@@ -147,9 +147,7 @@ function pf_step(state, ctx, p_ix, rng)
             state.log_ward_importation_rate,
             state.log_ward_clearance_rate,
     
-            stepped_epidemic,
-
-            state.obs_c
+            stepped_epidemic
         )
     else
         return pf_state(
@@ -161,9 +159,7 @@ function pf_step(state, ctx, p_ix, rng)
             state.log_ward_importation_rate + rand(Normal(0, 0.01)),
             state.log_ward_clearance_rate + rand(Normal(0, 0.01)),
     
-            stepped_epidemic,
-
-            state.obs_c + rand(Normal(0, 0.05))
+            stepped_epidemic
         )
     end
 
@@ -172,10 +168,12 @@ function pf_step(state, ctx, p_ix, rng)
 end
 
 
-function observation_model(mean, obs_c)
-    return TruncatedNormal(mean, 1 + mean * exp(obs_c), 0, Inf)
+function observation_model(mean)
+    #return TruncatedNormal(mean, 1 + mean * exp(obs_c), 0, Inf)
 
     #return Poisson(mean + 0.1)
+
+    return Normal(mean, 1)
 end
 
 
@@ -183,12 +181,12 @@ function pf_prob_obs(xt, ctx, xt1, yt1)
     sim_ward = get_total_ward_occupancy(xt1, ctx.t - 1)
     sim_ICU = get_total_ICU_occupancy(xt1, ctx.t - 1)
 
-    true_ward = yt1[1]
-    true_ICU = yt1[2]
+    true_ward = round(Int32, yt1[1])
+    true_ICU = round(Int32, yt1[2])
 
-    c = xt1.obs_c
+    return (true_ward == sim_ward) & (true_ICU == sim_ICU)
     
-    return pdf(observation_model(true_ward, c), sim_ward) * pdf(observation_model(true_ICU, c), sim_ICU)
+    #return pdf(observation_model(true_ward), sim_ward) * pdf(observation_model(true_ICU), sim_ICU)
 end
 
 
@@ -218,24 +216,23 @@ function get_total_ICU_occupancy(pf_state, t)
 end
 
 function get_sim_progression_occupancy(pf_state, t)
-    c = pf_state.obs_c
-
-    return round(Int64, rand(observation_model(get_progression_occupancy(pf_state, t), c)))
+    return get_progression_occupancy(pf_state, t)
+    #return round(Int64, rand(observation_model(get_progression_occupancy(pf_state, t))))
 end
 
 function get_sim_outbreak_occupancy(pf_state, t)
-    c = pf_state.obs_c
-    
-    return round(Int64, rand(observation_model(get_outbreak_occupancy(pf_state, t), c)))
+    return get_outbreak_occupancy(pf_state, t)
+    #return round(Int64, rand(observation_model(get_outbreak_occupancy(pf_state, t))))
 end
 
 function get_sim_total_ward_occupancy(pf_state, t)
-    return get_sim_progression_occupancy(pf_state, t) + 
-        get_sim_outbreak_occupancy(pf_state, t)
+    return get_progression_occupancy(pf_state, t) + 
+        get_outbreak_occupancy(pf_state, t)
+    # return get_sim_progression_occupancy(pf_state, t) + 
+    #     get_sim_outbreak_occupancy(pf_state, t)
 end
 
 function get_sim_total_ICU_occupancy(pf_state, t)
-    c = pf_state.obs_c
-
-    return round(Int64, rand(observation_model(get_total_ICU_occupancy(pf_state, t), c)))
+    return get_total_ICU_occupancy(pf_state, t)
+    #return round(Int64, rand(observation_model(get_total_ICU_occupancy(pf_state, t))))
 end
