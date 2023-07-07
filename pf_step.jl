@@ -64,6 +64,7 @@ function pf_step(state, ctx, p_ix, rng)
     
             state.adj_pr_hosp,
             state.adj_los,
+            state.adj_pr_hosp_gp,
     
             state.log_ward_importation_rate,
             state.log_ward_clearance_rate,
@@ -73,11 +74,15 @@ function pf_step(state, ctx, p_ix, rng)
     else
         # Return the updated state
         # Adjust the time-varying parameters
+        gp_stepped = step_gp(state.adj_pr_hosp_gp)
+
+
         return pf_state(
             arr_all,
     
-            state.adj_pr_hosp + rand(Laplace(0, sqrt(0.5 * 0.05) )),
+            gp_stepped.x[end],
             state.adj_los + rand(Laplace(0, sqrt(0.5 * 0.05) )),
+            gp_stepped,
     
             state.log_ward_importation_rate + rand(Laplace(0, sqrt(0.5 * 0.01) )),
             state.log_ward_clearance_rate + rand(Laplace(0, sqrt(0.5 * 0.01) )),

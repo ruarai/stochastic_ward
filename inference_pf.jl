@@ -3,6 +3,7 @@ using Distributions
 using StatsFuns
 using DataFrames
 using Random
+using GaussianDistributions
 
 using ParticleFilters
 
@@ -19,6 +20,8 @@ include("observation.jl")
 include("particle_filter/includes.jl")
 
 include("group_delay_samples_cache.jl")
+
+include("gp.jl")
 
 include("pf_state.jl")
 include("pf_context.jl")
@@ -148,8 +151,10 @@ end
 function create_prior(
     n_steps
 )
-    adj_pr_hosp = rand(Normal(0, 0.4))
     adj_los = rand(Normal(0, 0.4))
+
+    adj_pr_hosp_gp = make_gp(0.5, 4.0)
+    adj_pr_hosp = adj_pr_hosp_gp.x[end]
 
     log_ward_importation_rate = rand(Normal(-8, 1))
     log_ward_clearance_rate = log(1 / rand(TruncatedNormal(7, 4, 3, 14)))
@@ -157,7 +162,7 @@ function create_prior(
     return pf_state(
         zeros(def_n_age_groups, n_steps, def_n_compartments, def_n_slots),
 
-        adj_pr_hosp, adj_los,
+        adj_pr_hosp, adj_los, adj_pr_hosp_gp,
         log_ward_importation_rate, log_ward_clearance_rate,
 
         ward_epidemic(
