@@ -247,11 +247,11 @@ function read_time_varying_estimates(time_varying_estimates_table, n_days)
 end
 
 # Returns the 'forecast start day'
-# Defined as one day after the latest day with occupancy data
+# Defined as the latest day with occupancy data
 function get_forecast_start_day(occ_data)
     for i in reverse(2:length(occ_data))
         if occ_data[i] < -0.5 && occ_data[i - 1] > -0.5
-            return i
+            return i - 1
         end
     end
     return -1
