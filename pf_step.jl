@@ -76,11 +76,11 @@ function pf_step(state, ctx, p_ix, rng)
         return pf_state(
             arr_all,
     
-            state.adj_pr_hosp + rand(Normal(0, 0.05)),
-            state.adj_los + rand(Normal(0, 0.05)),
+            state.adj_pr_hosp + rand(Laplace(0, sqrt(0.5 * 0.05) )),
+            state.adj_los + rand(Laplace(0, sqrt(0.5 * 0.05) )),
     
-            state.log_ward_importation_rate + rand(Normal(0, 0.01)),
-            state.log_ward_clearance_rate + rand(Normal(0, 0.01)),
+            state.log_ward_importation_rate + rand(Laplace(0, sqrt(0.5 * 0.01) )),
+            state.log_ward_clearance_rate + rand(Laplace(0, sqrt(0.5 * 0.01) )),
     
             stepped_epidemic
         )
