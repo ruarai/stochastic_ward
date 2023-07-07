@@ -8,9 +8,11 @@ struct pf_state
 
     # Adjustment factors on probability of hospitalisation and length-of-stay
     adj_pr_hosp::Float64
-    adj_los::Float64
-
     adj_pr_hosp_gp::gp_state
+
+    adj_los::Float64
+    adj_los_gp::gp_state
+
 
     # Parameters for ward_epidemic
     log_ward_importation_rate::Float64

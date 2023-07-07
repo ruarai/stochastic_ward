@@ -151,9 +151,10 @@ end
 function create_prior(
     n_steps
 )
-    adj_los = rand(Normal(0, 0.4))
+    adj_los_gp = make_gp(0.5, 8.0)
+    adj_los = adj_los_gp.x[end]
 
-    adj_pr_hosp_gp = make_gp(0.5, 4.0)
+    adj_pr_hosp_gp = make_gp(0.5, 8.0)
     adj_pr_hosp = adj_pr_hosp_gp.x[end]
 
     log_ward_importation_rate = rand(Normal(-8, 1))
@@ -162,7 +163,7 @@ function create_prior(
     return pf_state(
         zeros(def_n_age_groups, n_steps, def_n_compartments, def_n_slots),
 
-        adj_pr_hosp, adj_los, adj_pr_hosp_gp,
+        adj_pr_hosp, adj_pr_hosp_gp, adj_los, adj_los_gp,
         log_ward_importation_rate, log_ward_clearance_rate,
 
         ward_epidemic(
