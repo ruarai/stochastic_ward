@@ -12,7 +12,9 @@ include("group_parameters.jl")
 include("ward_epidemic.jl")
 
 include("progression.jl")
-include("progression_pf.jl")
+
+include("pf_step.jl")
+include("observation.jl")
 
 include("particle_filter/includes.jl")
 
@@ -146,7 +148,6 @@ end
 function create_prior(
     n_steps
 )
-
     adj_pr_hosp = rand(Normal(0, 0.4))
     adj_los = rand(Normal(0, 0.4))
 
@@ -245,7 +246,8 @@ function read_time_varying_estimates(time_varying_estimates_table, n_days)
     
 end
 
-
+# Returns the 'forecast start day'
+# Defined as one day after the latest day with occupancy data
 function get_forecast_start_day(occ_data)
     for i in reverse(2:length(occ_data))
         if occ_data[i] < -0.5 && occ_data[i - 1] > -0.5

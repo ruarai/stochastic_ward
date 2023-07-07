@@ -174,3 +174,89 @@ function transition_ICU_next(
         rng
     )
 end
+
+function process_age_group(
+    t, arr,
+
+    group_params,
+    group_samples,
+    n_steps, n_steps_per_day,
+
+    pr_ICU,
+
+    rng
+)
+    for c in 1:def_n_compartments
+
+        # Update the current occupancy value to reflect the value at the last timestep
+        # counted at arr[ix(t - 1, c, s_occupancy)]
+        # plus/minus any transitions (counted by arr[ix(t, c, s_occupancy)])
+        if t > 1
+            arr[t, c, s_occupancy] += arr[t - 1, c, s_occupancy]
+        end
+
+        # Also increment occupancy by number of inward transitions
+        arr[t, c, s_occupancy] += arr[t, c, s_transitions]
+    end
+
+    # Handle symptomatic -> ward transitions
+    transition_delay(
+        c_symptomatic, c_ward,
+        arr[t, c_symptomatic, s_transitions],
+        t,
+        arr,
+        group_samples.symptomatic_to_ward,
+        n_steps, n_steps_per_day,
+
+        rng
+    )
+
+    pr_not_ICU = 1 - pr_ICU
+    pr_discharge_given_not_ICU = group_params.pr_ward_to_discharge / (1 - group_params.pr_ward_to_ICU)
+    pr_discharge_adj = pr_discharge_given_not_ICU * pr_not_ICU;
+
+    # Handle ward -> ICU, death, discharge transitions
+    transition_ward_next(
+        t, arr,
+        pr_discharge_adj, pr_ICU,
+
+        group_samples,
+        n_steps, n_steps_per_day,
+        
+        rng
+    )
+
+    # Handle ICU -> post-ICU ward, death, discharge transitions
+    transition_ICU_next(
+        t, arr,
+        group_params,
+        group_samples,
+        n_steps, n_steps_per_day,
+
+        rng
+    )
+
+    # Handle post-ICU ward -> death transitions
+    transition_delay(
+        c_postICU_to_death, c_died_postICU,
+        arr[t, c_postICU_to_death, s_transitions],
+        t,
+        arr,
+        group_samples.postICU_to_death,
+        n_steps, n_steps_per_day,
+
+        rng
+    )
+    
+    # Handle post-ICU ward -> discharge transitions
+    transition_delay(
+        c_postICU_to_discharge, c_discharged_postICU,
+        arr[t, c_postICU_to_discharge, s_transitions],
+        t,
+        arr,
+        group_samples.postICU_to_discharge,
+        n_steps, n_steps_per_day,
+
+        rng
+    )
+end
