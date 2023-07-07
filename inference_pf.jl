@@ -128,9 +128,9 @@ function run_inference(
                     :particle => p,
                     :day => d,
 
-                    :sim_ward => get_sim_total_ward_occupancy(particle_p, t),
-                    :sim_ward_outbreak => get_sim_outbreak_occupancy(particle_p, t),
-                    :sim_ward_progression => get_sim_progression_occupancy(particle_p, t),
+                    :sim_ward => get_total_ward_occupancy(particle_p, t),
+                    :sim_ward_outbreak => get_ward_outbreak_occupancy(particle_p, t),
+                    :sim_ward_progression => get_ward_progression_occupancy(particle_p, t),
                     :sim_ICU => get_sim_total_ICU_occupancy(particle_p, t),
                     :adj_pr_hosp => particle_p.adj_pr_hosp,
                     :adj_los => particle_p.adj_los,

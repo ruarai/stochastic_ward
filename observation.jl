@@ -42,17 +42,17 @@ function get_total_ICU_occupancy(pf_state, t)
     return sum(arr_all[:, t, c_ICU, s_occupancy])
 end
 
-function get_sim_progression_occupancy(pf_state, t)
-    return round(Int64, rand(observation_model(get_progression_occupancy(pf_state, t))))
+function get_sim_ward_progression_occupancy(pf_state, t)
+    return round(Int64, rand(observation_model(get_ward_progression_occupancy(pf_state, t))))
 end
 
-function get_sim_outbreak_occupancy(pf_state, t)
-    return round(Int64, rand(observation_model(get_outbreak_occupancy(pf_state, t))))
+function get_sim_ward_outbreak_occupancy(pf_state, t)
+    return round(Int64, rand(observation_model(get_ward_outbreak_occupancy(pf_state, t))))
 end
 
 function get_sim_total_ward_occupancy(pf_state, t)
-    return get_sim_progression_occupancy(pf_state, t) + 
-         get_sim_outbreak_occupancy(pf_state, t)
+    return get_sim_ward_progression_occupancy(pf_state, t) + 
+         get_sim_ward_outbreak_occupancy(pf_state, t)
 end
 
 function get_sim_total_ICU_occupancy(pf_state, t)
