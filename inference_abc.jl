@@ -25,13 +25,14 @@ function run_inference(
     n_days,
     n_steps_per_day,
     num_samples,
+    thresholds,
+    rejections_per_selections,
 
     case_curves,
 
     group_parameters_table,
     time_varying_estimates_table,
 
-    #thresholds,
 
     true_occupancy_matrix
 )
@@ -61,28 +62,84 @@ function run_inference(
     end
 
     model_states = Vector{model_state}(undef, num_samples)
+    n_rejected = zeros(num_samples)
+    n_accepted = zeros(num_samples)
 
-    Threads.@threads for s in 1:num_samples
-        state = create_prior(n_steps)
-        
+    do_give_up(accepted, rejected) = accepted + rejected > 100 && accepted * rejections_per_selections < rejected
 
-        for d in 1:n_days
-            t = (d - 1) * n_steps_per_day + 1
-            is_forecast = d >= forecast_start_day
+    for i in eachindex(thresholds)
+        println(thresholds[i])
+        Threads.@threads for s in 1:num_samples
+            rejected = true
+    
+            while rejected && !do_give_up(n_accepted[i], n_rejected[i])
 
-            context = model_context(
-                n_steps_per_day, n_steps, t,
-                time_varying_estimates[1], group_params[1],
-                is_forecast, samples_cache, context_case_curves
-            )
+                state = create_prior(n_steps, n_days)
+                rejected = false
+    
+                for d in 1:n_days
+                    t = (d - 1) * n_steps_per_day + 1
+                    is_forecast = d >= forecast_start_day
+    
+                    context = model_context(
+                        n_steps_per_day, n_steps, t,
+                        time_varying_estimates[1], group_params[1],
+                        is_forecast, samples_cache, context_case_curves
+                    )
+    
+                    state = model_step(state, context, s, Random.MersenneTwister())
+    
+    
+                    if true_occupancy_matrix[d, 1] > -0.5
 
-            state = model_step(state, context, s, Random.MersenneTwister())
+                        sim_ward = get_total_ward_occupancy(state, t, d)
+                        sim_ICU = get_total_ICU_occupancy(state, t)
+    
+                        known_ward = true_occupancy_matrix[d, 1]
+                        known_ICU = true_occupancy_matrix[d, 2]
+
+                        error_ward = abs(known_ward - sim_ward)
+                        error_ICU = abs(known_ICU - sim_ICU)
+    
+                        if error_ward > max(known_ward * thresholds[i], 2) || error_ICU > max(known_ICU * thresholds[i] * 1.5, 4)
+                            rejected = true
+
+                            break
+                        end
+                    end
+                end
+
+                if !rejected
+                    model_states[s] = state
+                    n_accepted[i] += 1
+                else
+                    n_rejected[i] += 1
+                end
+            end
+
+            if do_give_up(n_accepted[i], n_rejected[i])
+                break
+            end
         end
 
-        model_states[s] = state
+        if !do_give_up(n_accepted[i], n_rejected[i])
+            break
+        end
     end
 
-    results_table = DataFrame(
+
+
+    parameters_output = DataFrame(
+        sample = Int[],
+
+        adj_pr_hosp = Float64[],
+        adj_los = Float64[],
+
+        log_importation_rate = Float64[],
+        log_clearance_rate = Float64[],
+    )
+
+    simulations_output = DataFrame(
         sample = Int[],
         day = Int[],
 
@@ -95,34 +152,47 @@ function run_inference(
     for s in 1:num_samples
         sample_s = model_states[s]
 
+
+        push!(
+            parameters_output,
+            Dict(
+                :sample => s,
+
+                :adj_pr_hosp => sample_s.adj_pr_hosp,
+                :adj_los => sample_s.adj_los,
+                :log_importation_rate => sample_s.log_ward_importation_rate,
+                :log_clearance_rate => sample_s.log_ward_clearance_rate,
+            )
+        )
+
         for d in 1:n_days
             t = (d - 1) * n_steps_per_day + 1
 
             push!(
-                results_table,
+                simulations_output,
                 Dict(
                     :sample => s,
                     :day => d,
 
-                    :sim_ward => get_total_ward_occupancy(sample_s, t),
-                    :sim_ward_outbreak => get_ward_outbreak_occupancy(sample_s, t),
+                    :sim_ward => get_total_ward_occupancy(sample_s, t, d),
+                    :sim_ward_outbreak => get_ward_outbreak_occupancy(sample_s, d),
                     :sim_ward_progression => get_ward_progression_occupancy(sample_s, t),
-                    :sim_ICU => get_sim_total_ICU_occupancy(sample_s, t),
+                    :sim_ICU => get_total_ICU_occupancy(sample_s, t),
                 )
             )
         end
     end
 
-    return results_table
+    return (simulations = simulations_output, parameters = parameters_output)
 end
 
 function create_prior(
-    n_steps
+    n_steps, n_days
 )
-    adj_pr_hosp = rand(Normal(0, 0.4))
-    adj_los = rand(Normal(0, 0.4))
+    adj_pr_hosp = rand(Normal(0, 0.2))
+    adj_los = rand(Normal(0, 0.8))
 
-    log_ward_importation_rate = rand(Normal(-8, 1))
+    log_ward_importation_rate = log(0.0002) #rand(Normal(-8, 1))
     log_ward_clearance_rate = log(1 / rand(TruncatedNormal(7, 4, 3, 14)))
 
     return model_state(
@@ -132,9 +202,9 @@ function create_prior(
         log_ward_importation_rate, log_ward_clearance_rate,
 
         ward_epidemic(
-            fill(ward_steady_state_size, def_n_ward_epidemic),
-            zeros(Int64, def_n_ward_epidemic),
-            zeros(Int64, def_n_ward_epidemic),
+            zeros(Int64, n_days, def_n_ward_epidemic),
+            zeros(Int64, n_days, def_n_ward_epidemic),
+            zeros(Int64, n_days, def_n_ward_epidemic),
         )
     )
 end

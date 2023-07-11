@@ -49,17 +49,15 @@ function model_step(state, ctx, p_ix, rng)
         end
     end
 
+    t_start_day = ((t_start - 1) ÷ n_steps_per_day) + 1
     stepped_epidemic = step_ward_epidemic(
-        state.epidemic,
-        ctx.case_curves[p_ix][((t_start - 1) ÷ n_steps_per_day) + 1],
+        state.epidemic, t_start_day,
+        ctx.case_curves[p_ix][t_start_day],
         state.log_ward_importation_rate,
         state.log_ward_clearance_rate
     )
 
-    if ctx.is_forecast
-        # Return the updated state
-        # Do not vary parameters if we are in the forecasting period
-        return model_state(
+    return model_state(
             arr_all,
     
             state.adj_pr_hosp,
@@ -70,19 +68,4 @@ function model_step(state, ctx, p_ix, rng)
     
             stepped_epidemic
         )
-    else
-        # Return the updated state
-        # Adjust the time-varying parameters
-        return model_state(
-            arr_all,
-    
-            state.adj_pr_hosp + rand(Normal(0, 0.05)),
-            state.adj_los + rand(Normal(0, 0.05)),
-    
-            state.log_ward_importation_rate + rand(Normal(0, 0.01)),
-            state.log_ward_clearance_rate + rand(Normal(0, 0.01)),
-    
-            stepped_epidemic
-        )
-    end
 end
