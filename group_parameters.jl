@@ -47,10 +47,10 @@ function adj_gamma(dist, adj_los)
     shape = dist.α
     scale = dist.θ
 
-    shape_adj = exp(log(shape) + adj_los / 2)
-    scale_adj = exp(log(scale) + adj_los / 2)
+    shape_adj = exp(log(shape) + adj_los)
+    #scale_adj = exp(log(scale) + adj_los / 2)
 
-    return Gamma(shape_adj, scale_adj)
+    return Gamma(shape_adj, scale)
 end
 
 function make_delay_samples(

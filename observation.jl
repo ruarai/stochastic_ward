@@ -32,7 +32,7 @@ function get_ward_progression_occupancy(pf_state, t)
 end
 
 function get_total_ward_occupancy(pf_state, t)
-    return get_ward_outbreak_occupancy(pf_state, t) + get_ward_progression_occupancy(pf_state, t)
+    return get_ward_progression_occupancy(pf_state, t)# + get_ward_outbreak_occupancy(pf_state, t)
 end
 
 
@@ -51,8 +51,7 @@ function get_sim_ward_outbreak_occupancy(pf_state, t)
 end
 
 function get_sim_total_ward_occupancy(pf_state, t)
-    return get_sim_ward_progression_occupancy(pf_state, t) + 
-         get_sim_ward_outbreak_occupancy(pf_state, t)
+    return get_sim_ward_progression_occupancy(pf_state, t)# + get_sim_ward_outbreak_occupancy(pf_state, t)
 end
 
 function get_sim_total_ICU_occupancy(pf_state, t)
