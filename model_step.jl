@@ -1,7 +1,7 @@
 
 
 
-function pf_step(state, ctx, p_ix, rng)
+function model_step(state, ctx, p_ix, rng)
     arr_all = copy(state.arr_all)
 
     t_start = ctx.t
@@ -59,7 +59,7 @@ function pf_step(state, ctx, p_ix, rng)
     if ctx.is_forecast
         # Return the updated state
         # Do not vary parameters if we are in the forecasting period
-        return pf_state(
+        return model_state(
             arr_all,
     
             state.adj_pr_hosp,
@@ -73,7 +73,7 @@ function pf_step(state, ctx, p_ix, rng)
     else
         # Return the updated state
         # Adjust the time-varying parameters
-        return pf_state(
+        return model_state(
             arr_all,
     
             state.adj_pr_hosp + rand(Normal(0, 0.05)),

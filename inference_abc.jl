@@ -4,8 +4,6 @@ using StatsFuns
 using DataFrames
 using Random
 
-using ParticleFilters
-
 include("globals.jl")
 include("group_parameters.jl")
 
@@ -13,34 +11,34 @@ include("ward_epidemic.jl")
 
 include("progression.jl")
 
-include("pf_step.jl")
+include("model_step.jl")
 include("observation.jl")
-
-include("particle_filter/includes.jl")
 
 include("group_delay_samples_cache.jl")
 
-include("pf_state.jl")
-include("pf_context.jl")
+include("model_state.jl")
+include("model_context.jl")
 
 
-# The primary function for calling the particle filter from R
+# The primary function for calling from R
 function run_inference(
     n_days,
     n_steps_per_day,
-    num_particles,
+    num_samples,
 
     case_curves,
 
     group_parameters_table,
     time_varying_estimates_table,
 
+    #thresholds,
+
     true_occupancy_matrix
 )
     # Julia and R do not play along nicely with these parameters. Ensure they are rounded integers.
     n_days = round(Int32, n_days)
     n_steps_per_day = round(Int32, n_steps_per_day)
-    num_particles = round(Int64, num_particles)
+    num_samples = round(Int64, num_samples)
 
     n_steps = n_days * n_steps_per_day
 
@@ -54,89 +52,62 @@ function run_inference(
     samples_cache = make_cached_samples(group_params[1], n_steps_per_day)
 
     rng = MersenneTwister()
+    
 
-    # Initialise the components of the particle filter
-    predict_model = ThreadedPredictModel{pf_state}(pf_step)
-    reweight_model = ReweightModel(pf_prob_obs)
-    resample_model = LowVarianceResamplerDebug(num_particles)
-    filter = BasicParticleFilter2(predict_model, reweight_model, resample_model, num_particles, MersenneTwister())
-
-    # Create the ParticleCollection, initialising values from the prior distribution
-    particle_collection = ParticleCollection([create_prior(n_steps) for i in 1:num_particles]);
-
-    # Produce a set of case curves that will be associated with a particle index (and not actually selected for)
-    context_case_curves = Array{Array{Int32}}(undef, num_particles)
-    for i in 1:num_particles
+    # Produce a set of case curves that will be associated with a sample index (and not actually selected for)
+    context_case_curves = Array{Array{Int32}}(undef, num_samples)
+    for i in 1:num_samples
         context_case_curves[i] = case_curves[:, sample(1:size(case_curves, 2))]
     end
 
+    model_states = Vector{model_state}(undef, num_samples)
+
+    Threads.@threads for s in 1:num_samples
+        state = create_prior(n_steps)
+        
+
+        for d in 1:n_days
+            t = (d - 1) * n_steps_per_day + 1
+            is_forecast = d >= forecast_start_day
+
+            context = model_context(
+                n_steps_per_day, n_steps, t,
+                time_varying_estimates[1], group_params[1],
+                is_forecast, samples_cache, context_case_curves
+            )
+
+            state = model_step(state, context, s, Random.MersenneTwister())
+        end
+
+        model_states[s] = state
+    end
+
     results_table = DataFrame(
-        particle = Int[],
+        sample = Int[],
         day = Int[],
 
         sim_ward = Int[],
         sim_ward_outbreak = Int[], 
         sim_ward_progression = Int[],
-        sim_ICU = Int[],
-
-        adj_pr_hosp = Float64[],
-        adj_los = Float64[],
-
-        log_importation_rate = Float64[],
-        log_clearance_rate = Float64[],
-
-        weight = Float64[]
+        sim_ICU = Int[]
     )
 
-    weights_memory = zeros(num_particles)
+    for s in 1:num_samples
+        sample_s = model_states[s]
 
-    # Primary simulation loop
-    for d in 1:n_days
-        if d % 25 == 0
-            println("Stepping at day $d")
-        end
-
-        t = (d - 1) * n_steps_per_day + 1
-        is_forecast = d >= forecast_start_day
-
-        # Simulation context for day d
-        ctx_day = pf_context(
-            n_steps_per_day, n_steps, t,
-            time_varying_estimates[1], group_params[1],
-            is_forecast, samples_cache, context_case_curves
-        )
-
-        # Decide whether to step forward without resampling (when no observation is available)
-        # or with resampling (where an observation is present)
-        if true_occupancy_matrix[d, 1] < -0.5
-            next_step = predict(filter, particle_collection, ctx_day, rng)
-            particle_collection = ParticleCollection(next_step)
-        else
-            particle_collection = update(filter, particle_collection, ctx_day, true_occupancy_matrix[d, :])
-
-            # Only update the weights in memory when we step with an observation
-            weights_memory = get_weights(reweight_model, particle_collection, ctx_day, true_occupancy_matrix[d, :])
-        end
-
-        # Save the results
-        for p in 1:num_particles
-            particle_p = particle(particle_collection, p)
+        for d in 1:n_days
+            t = (d - 1) * n_steps_per_day + 1
 
             push!(
                 results_table,
                 Dict(
-                    :particle => p,
+                    :sample => s,
                     :day => d,
 
-                    :sim_ward => get_total_ward_occupancy(particle_p, t),
-                    :sim_ward_outbreak => get_ward_outbreak_occupancy(particle_p, t),
-                    :sim_ward_progression => get_ward_progression_occupancy(particle_p, t),
-                    :sim_ICU => get_sim_total_ICU_occupancy(particle_p, t),
-                    :adj_pr_hosp => particle_p.adj_pr_hosp,
-                    :adj_los => particle_p.adj_los,
-                    :log_clearance_rate => particle_p.log_ward_clearance_rate,
-                    :log_importation_rate => particle_p.log_ward_importation_rate,
-                    :weight => weights_memory[p]
+                    :sim_ward => get_total_ward_occupancy(sample_s, t),
+                    :sim_ward_outbreak => get_ward_outbreak_occupancy(sample_s, t),
+                    :sim_ward_progression => get_ward_progression_occupancy(sample_s, t),
+                    :sim_ICU => get_sim_total_ICU_occupancy(sample_s, t),
                 )
             )
         end
@@ -154,7 +125,7 @@ function create_prior(
     log_ward_importation_rate = rand(Normal(-8, 1))
     log_ward_clearance_rate = log(1 / rand(TruncatedNormal(7, 4, 3, 14)))
 
-    return pf_state(
+    return model_state(
         zeros(def_n_age_groups, n_steps, def_n_compartments, def_n_slots),
 
         adj_pr_hosp, adj_los,

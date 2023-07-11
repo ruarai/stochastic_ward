@@ -1,6 +1,6 @@
 
-# The 'state' of each particle, with this selected for by the particle filter
-struct pf_state
+# The 'state' of each sample
+struct model_state
 
     # The total progression simulation data array
     # With dimensions of age-group, time, compartment and 'slot' (occupancy/transitions)

@@ -1,7 +1,7 @@
 
-# The 'context' object for the particle filter
-# Contains read-only data shared across all particles
-struct pf_context
+
+# Contains read-only data shared across all model runs
+struct model_context
     # The number of simulation steps per day
     n_steps_per_day::Int64
 
