@@ -62,8 +62,8 @@ function run_inference(
     end
 
     model_states = Vector{model_state}(undef, num_samples)
-    n_rejected = zeros(num_samples)
-    n_accepted = zeros(num_samples)
+    n_rejected = zeros(Int64, length(thresholds))
+    n_accepted = zeros(Int64, length(thresholds))
 
     do_give_up(accepted, rejected) = accepted + rejected > 100 && accepted * rejections_per_selections < rejected
 
@@ -112,6 +112,10 @@ function run_inference(
                 if !rejected
                     model_states[s] = state
                     n_accepted[i] += 1
+
+                    if n_accepted[i] % 100 == 0
+                        println(n_accepted[i], " / ", num_samples)
+                    end
                 else
                     n_rejected[i] += 1
                 end
@@ -192,7 +196,7 @@ function create_prior(
     adj_pr_hosp = rand(Normal(0, 0.2))
     adj_los = rand(Normal(0, 0.8))
 
-    log_ward_importation_rate = log(0.0002) #rand(Normal(-8, 1))
+    log_ward_importation_rate = rand(Normal(-8, 1))
     log_ward_clearance_rate = log(1 / rand(TruncatedNormal(7, 4, 3, 14)))
 
     return model_state(
