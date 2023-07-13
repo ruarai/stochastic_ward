@@ -26,7 +26,7 @@ function run_inference(
     n_steps_per_day,
     num_samples,
     thresholds,
-    rejections_per_selections,
+    rejection_probability_threshold,
 
     case_curves,
 
@@ -47,12 +47,8 @@ function run_inference(
     # Load in the bootstrapped data
     group_params = read_group_parameter_samples(group_parameters_table)
     time_varying_estimates = read_time_varying_estimates(time_varying_estimates_table, n_days)
-    
-    forecast_start_day = get_forecast_start_day(true_occupancy_matrix[:, 1])
 
     samples_cache = make_cached_samples(group_params[1], n_steps_per_day)
-
-    rng = MersenneTwister()
     
 
     # Produce a set of case curves that will be associated with a sample index (and not actually selected for)
@@ -65,56 +61,36 @@ function run_inference(
     n_rejected = zeros(Int64, length(thresholds))
     n_accepted = zeros(Int64, length(thresholds))
 
-    do_give_up(accepted, rejected) = accepted + rejected > 100 && accepted * rejections_per_selections < rejected
+
+    context = model_context(
+        n_steps_per_day, n_steps, n_days,
+        time_varying_estimates[1], group_params[1],
+        samples_cache, context_case_curves
+    )
+
+    do_give_up(accepted, rejected) = accepted + rejected > (1.0 / rejection_probability_threshold) * 4.0 && accepted < rejection_probability_threshold * (accepted + rejected)
 
     for i in eachindex(thresholds)
         println(thresholds[i])
+        if i > 1
+            println("Previous acceptance probability: ", n_accepted[i - 1] / (n_rejected[i - 1] + n_accepted[i - 1]) )
+        end
+
         Threads.@threads for s in 1:num_samples
             rejected = true
     
             while rejected && !do_give_up(n_accepted[i], n_rejected[i])
 
-                state = create_prior(n_steps, n_days)
-                rejected = false
-    
-                for d in 1:n_days
-                    t = (d - 1) * n_steps_per_day + 1
-                    is_forecast = d >= forecast_start_day
-    
-                    context = model_context(
-                        n_steps_per_day, n_steps, t,
-                        time_varying_estimates[1], group_params[1],
-                        is_forecast, samples_cache, context_case_curves
-                    )
-    
-                    state = model_step(state, context, s, Random.MersenneTwister())
-    
-    
-                    if true_occupancy_matrix[d, 1] > -0.5
+                state = model_process(s, context, Random.MersenneTwister())
 
-                        sim_ward = get_total_ward_occupancy(state, t, d)
-                        sim_ICU = get_total_ICU_occupancy(state, t)
-    
-                        known_ward = true_occupancy_matrix[d, 1]
-                        known_ICU = true_occupancy_matrix[d, 2]
-
-                        error_ward = abs(known_ward - sim_ward)
-                        error_ICU = abs(known_ICU - sim_ICU)
-    
-                        if error_ward > max(known_ward * thresholds[i], 2) || error_ICU > max(known_ICU * thresholds[i] * 1.5, 4)
-                            rejected = true
-
-                            break
-                        end
-                    end
-                end
+                rejected = do_reject_output(state, true_occupancy_matrix, thresholds[i], n_days, n_steps_per_day)
 
                 if !rejected
                     model_states[s] = state
                     n_accepted[i] += 1
 
                     if n_accepted[i] % 100 == 0
-                        println(n_accepted[i], " / ", num_samples)
+                        println(n_accepted[i], " / ", num_samples, ", acceptance probability: ", n_accepted[i] / (n_rejected[i] + n_accepted[i]))
                     end
                 else
                     n_rejected[i] += 1
