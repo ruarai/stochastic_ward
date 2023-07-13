@@ -2,7 +2,6 @@
 
 
 function model_step(state, ctx, p_ix, rng)
-    arr_all = copy(state.arr_all)
 
     t_start = ctx.t
     n_steps = ctx.n_steps
@@ -26,13 +25,13 @@ function model_step(state, ctx, p_ix, rng)
                     )
                 )
 
-                arr_all[a, t, c_symptomatic, s_transitions] += rand(Binomial(cases, pr_age_and_hosp))
+                state.arr_all[a, t, c_symptomatic, s_transitions] += rand(Binomial(cases, pr_age_and_hosp))
             end
 
 
             pr_ICU = ctx.time_varying_estimates.pr_ICU[a, max((t - 1) ÷ n_steps_per_day - 4, 1)]
 
-            arr_age_group_view = @view arr_all[a, :, :, :]
+            arr_age_group_view = @view state.arr_all[a, :, :, :]
 
             @inbounds process_age_group(
                 t,
@@ -58,7 +57,7 @@ function model_step(state, ctx, p_ix, rng)
     )
 
     return model_state(
-            arr_all,
+            state.arr_all,
     
             state.adj_pr_hosp,
             state.adj_los,

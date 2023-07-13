@@ -19,12 +19,14 @@ include("group_delay_samples_cache.jl")
 include("model_state.jl")
 include("model_context.jl")
 
+include("model_parameters.jl")
+
 
 # The primary function for calling from R
 function run_inference(
     n_days,
     n_steps_per_day,
-    num_samples,
+    num_particles,
     thresholds,
     rejections_per_selections,
 
@@ -39,7 +41,8 @@ function run_inference(
     # Julia and R do not play along nicely with these parameters. Ensure they are rounded integers.
     n_days = round(Int32, n_days)
     n_steps_per_day = round(Int32, n_steps_per_day)
-    num_samples = round(Int64, num_samples)
+    num_particles = round(Int64, num_particles)
+    num_thresholds = length(thresholds)
 
     n_steps = n_days * n_steps_per_day
 
@@ -56,85 +59,86 @@ function run_inference(
     
 
     # Produce a set of case curves that will be associated with a sample index (and not actually selected for)
-    context_case_curves = Array{Array{Int32}}(undef, num_samples)
-    for i in 1:num_samples
+    context_case_curves = Array{Array{Int32}}(undef, num_particles)
+    for i in 1:num_particles
         context_case_curves[i] = case_curves[:, sample(1:size(case_curves, 2))]
     end
 
-    model_states = Vector{model_state}(undef, num_samples)
-    n_rejected = zeros(Int64, length(thresholds))
-    n_accepted = zeros(Int64, length(thresholds))
+    model_priors = [Normal(0, 1), Normal(0, 1), Normal(-8, 1), Normal(-1, 1)]
+    model_perturbs = [Normal(0, 0.01), Normal(0, 0.01), Normal(0, 0.01), Normal(0, 0.01)]
 
-    do_give_up(accepted, rejected) = accepted + rejected > 100 && accepted * rejections_per_selections < rejected
+    sigmas = Array{Vector{Float64}, 2}(undef, num_thresholds, num_particles)
+    weights = zeros(num_thresholds, num_particles)
+    particle_outputs = Array{model_state}(undef, num_particles)
 
-    for i in eachindex(thresholds)
-        println(thresholds[i])
-        Threads.@threads for s in 1:num_samples
+    for threshold_i in eachindex(thresholds)
+        println("Threshold $threshold_i, ", thresholds[threshold_i])
+        for particle_i in 1:num_particles
             rejected = true
-    
-            while rejected && !do_give_up(n_accepted[i], n_rejected[i])
 
-                state = create_prior(n_steps, n_days)
+            while rejected
                 rejected = false
-    
+
+                if threshold_i == 1
+                    sigmas[1, particle_i] = create_prior(model_priors)
+                else
+                    particle_ix_sample = wsample(1:num_particles, weights[threshold_i - 1, :])
+
+                    sigmas[threshold_i, particle_i] = perturb_parameters(sigmas[threshold_i - 1, particle_ix_sample], model_perturbs)
+                end
+
+                particle_outputs[particle_i] = create_model_state(sigmas[threshold_i, particle_i], n_steps, n_days)
+
                 for d in 1:n_days
                     t = (d - 1) * n_steps_per_day + 1
                     is_forecast = d >= forecast_start_day
-    
+
                     context = model_context(
                         n_steps_per_day, n_steps, t,
                         time_varying_estimates[1], group_params[1],
                         is_forecast, samples_cache, context_case_curves
                     )
-    
-                    state = model_step(state, context, s, Random.MersenneTwister())
-    
-    
+
+                    particle_outputs[particle_i] = model_step(particle_outputs[particle_i], context, particle_i, Random.MersenneTwister())
+
+
                     if true_occupancy_matrix[d, 1] > -0.5
 
-                        sim_ward = get_total_ward_occupancy(state, t, d)
-                        sim_ICU = get_total_ICU_occupancy(state, t)
-    
+                        sim_ward = get_total_ward_occupancy(particle_outputs[particle_i], t, d)
+                        sim_ICU = get_total_ICU_occupancy(particle_outputs[particle_i], t)
+
                         known_ward = true_occupancy_matrix[d, 1]
                         known_ICU = true_occupancy_matrix[d, 2]
 
                         error_ward = abs(known_ward - sim_ward)
                         error_ICU = abs(known_ICU - sim_ICU)
-    
-                        if error_ward > max(known_ward * thresholds[i], 2) || error_ICU > max(known_ICU * thresholds[i] * 1.5, 4)
-                            rejected = true
 
+                        if error_ward > max(known_ward * thresholds[threshold_i], 2) || error_ICU > max(known_ICU * thresholds[threshold_i] * 1.5, 4)
+                            rejected = true
                             break
                         end
                     end
                 end
+            end
 
-                if !rejected
-                    model_states[s] = state
-                    n_accepted[i] += 1
-
-                    if n_accepted[i] % 100 == 0
-                        println(n_accepted[i], " / ", num_samples)
-                    end
-                else
-                    n_rejected[i] += 1
+            if threshold_i == 1
+                weights[1, particle_i] = 1.0
+            else
+                numer = prior_prob(sigmas[threshold_i, particle_i], model_priors)
+                denom = 0
+                for particle_j in 1:num_particles
+                    denom += weights[threshold_i - 1, particle_j] * perturb_prob(sigmas[threshold_i, particle_i], sigmas[threshold_i - 1, particle_j], model_perturbs)
                 end
-            end
 
-            if do_give_up(n_accepted[i], n_rejected[i])
-                break
+                weights[threshold_i, particle_i] = numer / denom
             end
-        end
-
-        if !do_give_up(n_accepted[i], n_rejected[i])
-            break
         end
     end
 
 
 
     parameters_output = DataFrame(
-        sample = Int[],
+        particle = Int[],
 
         adj_pr_hosp = Float64[],
         adj_los = Float64[],
@@ -144,7 +148,7 @@ function run_inference(
     )
 
     simulations_output = DataFrame(
-        sample = Int[],
+        particle = Int[],
         day = Int[],
 
         sim_ward = Int[],
@@ -153,19 +157,19 @@ function run_inference(
         sim_ICU = Int[]
     )
 
-    for s in 1:num_samples
-        sample_s = model_states[s]
+    for p in 1:num_particles
+        particle_p = particle_outputs[p]
 
 
         push!(
             parameters_output,
             Dict(
-                :sample => s,
+                :particle => p,
 
-                :adj_pr_hosp => sample_s.adj_pr_hosp,
-                :adj_los => sample_s.adj_los,
-                :log_importation_rate => sample_s.log_ward_importation_rate,
-                :log_clearance_rate => sample_s.log_ward_clearance_rate,
+                :adj_pr_hosp => particle_p.adj_pr_hosp,
+                :adj_los => particle_p.adj_los,
+                :log_importation_rate => particle_p.log_ward_importation_rate,
+                :log_clearance_rate => particle_p.log_ward_clearance_rate,
             )
         )
 
@@ -175,13 +179,13 @@ function run_inference(
             push!(
                 simulations_output,
                 Dict(
-                    :sample => s,
+                    :particle => p,
                     :day => d,
 
-                    :sim_ward => get_total_ward_occupancy(sample_s, t, d),
-                    :sim_ward_outbreak => get_ward_outbreak_occupancy(sample_s, d),
-                    :sim_ward_progression => get_ward_progression_occupancy(sample_s, t),
-                    :sim_ICU => get_total_ICU_occupancy(sample_s, t),
+                    :sim_ward => get_total_ward_occupancy(particle_p, t, d),
+                    :sim_ward_outbreak => get_ward_outbreak_occupancy(particle_p, d),
+                    :sim_ward_progression => get_ward_progression_occupancy(particle_p, t),
+                    :sim_ICU => get_total_ICU_occupancy(particle_p, t),
                 )
             )
         end
@@ -190,28 +194,6 @@ function run_inference(
     return (simulations = simulations_output, parameters = parameters_output)
 end
 
-function create_prior(
-    n_steps, n_days
-)
-    adj_pr_hosp = rand(Normal(0, 0.2))
-    adj_los = rand(Normal(0, 0.8))
-
-    log_ward_importation_rate = rand(Normal(-8, 1))
-    log_ward_clearance_rate = log(1 / rand(TruncatedNormal(7, 4, 3, 14)))
-
-    return model_state(
-        zeros(def_n_age_groups, n_steps, def_n_compartments, def_n_slots),
-
-        adj_pr_hosp, adj_los,
-        log_ward_importation_rate, log_ward_clearance_rate,
-
-        ward_epidemic(
-            zeros(Int64, n_days, def_n_ward_epidemic),
-            zeros(Int64, n_days, def_n_ward_epidemic),
-            zeros(Int64, n_days, def_n_ward_epidemic),
-        )
-    )
-end
 
 
 function read_group_parameter_samples(group_parameters_table)
