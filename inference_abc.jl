@@ -33,6 +33,7 @@ function run_inference(
     group_parameters_table,
     time_varying_estimates_table,
 
+    mean_log_ward_importation_rate,
 
     true_occupancy_matrix
 )
@@ -81,7 +82,7 @@ function run_inference(
     
             while rejected && !do_give_up(n_accepted[i], n_rejected[i])
 
-                state = model_process(s, context, Random.MersenneTwister())
+                state = model_process(s, context, Random.MersenneTwister(), mean_log_ward_importation_rate)
 
                 rejected = do_reject_output(state, true_occupancy_matrix, thresholds[i], n_days, n_steps_per_day)
 
@@ -164,29 +165,6 @@ function run_inference(
     end
 
     return (simulations = simulations_output, parameters = parameters_output)
-end
-
-function create_prior(
-    n_steps, n_days
-)
-    adj_pr_hosp = rand(Normal(0, 0.2))
-    adj_los = rand(Normal(0, 0.8))
-
-    log_ward_importation_rate = rand(Normal(-8, 1))
-    log_ward_clearance_rate = log(1 / rand(TruncatedNormal(7, 4, 3, 14)))
-
-    return model_state(
-        zeros(def_n_age_groups, n_steps, def_n_compartments, def_n_slots),
-
-        adj_pr_hosp, adj_los,
-        log_ward_importation_rate, log_ward_clearance_rate,
-
-        ward_epidemic(
-            zeros(Int64, n_days, def_n_ward_epidemic),
-            zeros(Int64, n_days, def_n_ward_epidemic),
-            zeros(Int64, n_days, def_n_ward_epidemic),
-        )
-    )
 end
 
 

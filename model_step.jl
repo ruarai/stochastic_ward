@@ -1,9 +1,9 @@
 
 
 
-function model_process(p_ix, ctx, rng)
+function model_process(p_ix, ctx, rng, mean_log_ward_importation_rate)
 
-    state = create_prior(ctx.n_steps, ctx.n_days)
+    state = create_prior(ctx.n_steps, ctx.n_days, mean_log_ward_importation_rate)
 
     for a in 1:def_n_age_groups
         group_params = ctx.group_params[a]
