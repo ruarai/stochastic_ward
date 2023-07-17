@@ -49,6 +49,7 @@ function run_inference(
     group_params = read_group_parameter_samples(group_parameters_table)
     time_varying_estimates = read_time_varying_estimates(time_varying_estimates_table, n_days)
 
+    # Create a cache of length of stay durations for the progression model
     samples_cache = make_cached_samples(group_params[1], n_steps_per_day)
     
 
@@ -62,13 +63,14 @@ function run_inference(
     n_rejected = zeros(Int64, length(thresholds))
     n_accepted = zeros(Int64, length(thresholds))
 
-
+    # Data shared to all model runs
     context = model_context(
         n_steps_per_day, n_steps, n_days,
         time_varying_estimates[1], group_params[1],
         samples_cache, context_case_curves
     )
 
+    # Arbitrary-ish rule to 'give up' when failure rate is too high
     do_give_up(accepted, rejected) = accepted + rejected > (1.0 / rejection_probability_threshold) * 4.0 && accepted < rejection_probability_threshold * (accepted + rejected)
 
     for i in eachindex(thresholds)
@@ -77,11 +79,14 @@ function run_inference(
             println("Previous acceptance probability: ", n_accepted[i - 1] / (n_rejected[i - 1] + n_accepted[i - 1]) )
         end
 
+        # Split into threads. Try to produce num_samples outputs
         Threads.@threads for s in 1:num_samples
             rejected = true
     
+            # Keep attempting to produce a model output (until we give up)
             while rejected && !do_give_up(n_accepted[i], n_rejected[i])
 
+                # Run the model
                 state = model_process(s, context, Random.MersenneTwister(), mean_log_ward_importation_rate)
 
                 rejected = do_reject_output(state, true_occupancy_matrix, thresholds[i], n_days, n_steps_per_day)
@@ -243,15 +248,4 @@ function read_time_varying_estimates(time_varying_estimates_table, n_days)
 
     return out_samples
     
-end
-
-# Returns the 'forecast start day'
-# Defined as the latest day with occupancy data
-function get_forecast_start_day(occ_data)
-    for i in reverse(2:length(occ_data))
-        if occ_data[i] < -0.5 && occ_data[i - 1] > -0.5
-            return i - 1
-        end
-    end
-    return -1
 end
