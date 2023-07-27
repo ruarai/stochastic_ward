@@ -5,7 +5,6 @@ struct model_parameters
     adj_los::Float64
 
     log_ward_importation_rate::Float64
-    log_ward_clearance_rate::Float64
 end
 
 function create_prior(model_priors)
@@ -13,9 +12,8 @@ function create_prior(model_priors)
     adj_los = rand(model_priors[2])
 
     log_ward_importation_rate = rand(model_priors[3])
-    log_ward_clearance_rate = rand(model_priors[4])
 
-    return [adj_pr_hosp, adj_los, log_ward_importation_rate, log_ward_clearance_rate]
+    return [adj_pr_hosp, adj_los, log_ward_importation_rate]
 end
 
 function create_model_state(params, n_steps, n_days)
@@ -23,7 +21,7 @@ function create_model_state(params, n_steps, n_days)
         zeros(def_n_age_groups, n_steps, def_n_compartments, def_n_slots),
 
         params[1], params[2],
-        params[3], params[4],
+        params[3], log(1/14),
 
         ward_epidemic(
             zeros(Int64, n_days, def_n_ward_epidemic),

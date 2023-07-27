@@ -1,2 +1,4 @@
 .vscode/settings.json
 *.csv
+StochasticProgression/Manifest.toml
+*.jld2

@@ -3,6 +3,7 @@ using Distributions
 using StatsFuns
 using DataFrames
 using Random
+using JLD2
 
 include("globals.jl")
 include("group_parameters.jl")
@@ -56,13 +57,24 @@ function run_inference(
     samples_cache = make_cached_samples(group_params[1], n_steps_per_day)
 
     rng = MersenneTwister()
-    
+
 
     # Produce a set of case curves that will be associated with a sample index (and not actually selected for)
     context_case_curves = Array{Array{Int32}}(undef, num_particles)
     for i in 1:num_particles
         context_case_curves[i] = case_curves[:, sample(1:size(case_curves, 2))]
     end
+
+    context = model_context(
+        n_steps_per_day, n_steps, n_days,
+        time_varying_estimates[1], group_params[1],
+        samples_cache, context_case_curves
+    )
+
+    save_object("sim_study_context.jld2", context)
+    return false
+    
+
 
     model_priors = [Normal(0, 1), Normal(0, 1), Normal(-8, 1), Normal(-1, 1)]
     model_perturbs = [Normal(0, 0.01), Normal(0, 0.01), Normal(0, 0.01), Normal(0, 0.01)]
@@ -92,12 +104,6 @@ function run_inference(
                 for d in 1:n_days
                     t = (d - 1) * n_steps_per_day + 1
                     is_forecast = d >= forecast_start_day
-
-                    context = model_context(
-                        n_steps_per_day, n_steps, t,
-                        time_varying_estimates[1], group_params[1],
-                        is_forecast, samples_cache, context_case_curves
-                    )
 
                     particle_outputs[particle_i] = model_step(particle_outputs[particle_i], context, particle_i, Random.MersenneTwister())
 
