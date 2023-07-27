@@ -45,81 +45,6 @@ function get_error(state, true_occupancy)
     return sum(abs.(sim_occupancy .- true_occupancy[:,1]))
 end
 
-num_thresholds = 8
-num_particles = 1000
-
-
-model_priors = [Normal(0, 1), Normal(0, 1), Normal(-8, 2)]
-model_perturbs = [Normal(0, 0.1), Normal(0, 0.1), Normal(0, 0.1)]
-
-sigma = Array{Vector{Float64}, 2}(undef, num_thresholds, num_particles)
-weights = zeros(num_thresholds, num_particles)
-particle_outputs = Array{model_state}(undef, num_particles)
-
-
-
-omega = 2.0
-num_stochastic_samples = 100
-num_candidates = round(Int, num_particles + num_particles * omega)
-candidate_errors = zeros(num_thresholds, num_candidates)
-candidate_sigmas = Array{Vector{Float64}}(undef, num_candidates)
-
-candidate_occupancies = zeros(num_candidates, n_days, 2)
-
-for i in 1:num_thresholds
-    println("Threshold $i...")
-    Threads.@threads for p in 1:num_candidates
-        params = []
-
-        if i == 1
-            candidate_sigmas[p] = create_prior(model_priors)
-        else
-            particle_ix_sample = wsample(1:num_particles, weights[i - 1, :])
-
-            candidate_sigmas[p] = perturb_parameters(sigma[i - 1, particle_ix_sample], model_perturbs)
-        end
-
-        best_candidate = model_process(1, candidate_sigmas[p], context, Random.MersenneTwister())
-        candidate_errors[i, p] = get_error(best_candidate, true_occupancy)
-
-        for j in 1:(num_stochastic_samples - 1)
-            test_candidate = model_process(1, candidate_sigmas[p], context, Random.MersenneTwister())
-            test_candidate_error = get_error(test_candidate, true_occupancy)
-
-            if test_candidate_error < candidate_errors[i, p]
-                candidate_errors[i, p] = test_candidate_error
-                best_candidate = test_candidate
-            end
-        end
-
-        if i == num_thresholds
-            for d in 1:n_days
-                t = (d - 1) * n_steps_per_day + 1
-                candidate_occupancies[p, d, 1] = get_total_ward_occupancy(best_candidate, t, d)
-                candidate_occupancies[p, d, 2] = get_ward_outbreak_occupancy(best_candidate, d)
-            end
-        end
-    end
-
-    error_perm = sortperm(candidate_errors[i, :])
-
-    for (p_to, p_from) in pairs(error_perm[1:num_particles])
-        sigma[i, p_to] = candidate_sigmas[p_from]
-
-
-        if i == 1
-            weights[1, p_to] = 1.0
-        else
-            numer = prior_prob(sigma[i, p_to], model_priors)
-            denom = 0
-            for p_j in 1:num_particles
-                denom += weights[i - 1, p_j] * perturb_prob(sigma[i, p_to], sigma[i - 1, p_j], model_perturbs)
-            end
-
-            weights[i, p_to] = numer / denom
-        end
-    end
-end
 
 
 histogram([sigma[end,j][3] for j in 1:num_particles])
@@ -140,9 +65,9 @@ plot!([1, num_thresholds], [state.log_ward_importation_rate, state.log_ward_impo
 #plot(log.(candidate_errors), legend = false)
 
 p_test = 1
-sim_occupancy = candidate_occupancies[sortperm(candidate_errors[end,:])[p_test],:,1]
+sim_occupancy = candidate_occupancies[sortperm(candidate_errors[end,:])[1:num_particles],:,1]
 
-plot(sim_occupancy)
+plot(sim_occupancy')
 plot!(true_occupancy[:,1])
 
 sim_outbreak = candidate_occupancies[sortperm(candidate_errors[end,:])[p_test],:,2]
