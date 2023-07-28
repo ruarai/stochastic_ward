@@ -23,11 +23,7 @@ function create_model_state(params, n_steps, n_days)
         params[1], params[2],
         params[3], log(1/14),
 
-        ward_epidemic(
-            zeros(Int64, n_days, def_n_ward_epidemic),
-            zeros(Int64, n_days, def_n_ward_epidemic),
-            zeros(Int64, n_days, def_n_ward_epidemic),
-        )
+        ward_epidemic(zeros(n_days))
     )
 end
 

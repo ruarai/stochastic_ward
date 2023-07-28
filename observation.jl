@@ -1,26 +1,5 @@
-
-# Returns the distribution of the observation model with corresponding mean
-# function observation_model(mean)
-#     return truncated(Laplace(mean, 0.5 + mean * 0.005), 0, Inf)
-# end
-
-# ParticleFilters.jl compatible probability of observation functio
-# xt - previous state, not used
-# ctx - current context
-# xt1 - current state
-# yt1 - current observation
-# function pf_prob_obs(xt, ctx, xt1, yt1)
-#     sim_ward = get_total_ward_occupancy(xt1, ctx.t)
-#     sim_ICU = get_total_ICU_occupancy(xt1, ctx.t)
-
-#     true_ward = round(Int32, yt1[1])
-#     true_ICU = round(Int32, yt1[2])
-
-#     return pdf(observation_model(true_ward), sim_ward) * pdf(observation_model(true_ICU), sim_ICU)
-# end
-
 function get_ward_outbreak_occupancy(model_state, d)
-    return sum(model_state.epidemic.Q[d, :])
+    return model_state.epidemic.outbreak_occupancy[d]
 end
 
 function get_ward_progression_occupancy(model_state, t)
@@ -48,19 +27,3 @@ function get_total_ICU_occupancy(model_state, t)
         return sum(arr_all[:, t - 1, c_ICU, s_occupancy])
     end
 end
-
-# function get_sim_ward_progression_occupancy(model_state, t)
-#     return round(Int64, rand(observation_model(get_ward_progression_occupancy(model_state, t))))
-# end
-
-# function get_sim_ward_outbreak_occupancy(model_state, t)
-#     return round(Int64, rand(observation_model(get_ward_outbreak_occupancy(model_state, t))))
-# end
-
-# function get_sim_total_ward_occupancy(model_state, t)
-#     return get_sim_ward_progression_occupancy(model_state, t) + get_sim_ward_outbreak_occupancy(model_state, t)
-# end
-
-# function get_sim_total_ICU_occupancy(model_state, t)
-#     return round(Int64, rand(observation_model(get_total_ICU_occupancy(model_state, t))))
-# end
