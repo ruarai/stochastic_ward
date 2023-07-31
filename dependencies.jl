@@ -21,5 +21,7 @@ include("model_state.jl")
 include("model_context.jl")
 
 
-include("inference_abc_wide.jl")
+include("inference_abc_loose.jl")
 include("inference_abc_refine.jl")
+
+include("common_data.jl")

@@ -1,6 +1,5 @@
 
 
-# The primary function for calling from R
 function run_inference_refine(
     n_days,
     n_steps_per_day,
@@ -33,12 +32,8 @@ function run_inference_refine(
     # Create a cache of length of stay durations for the progression model
     samples_cache = make_cached_samples(group_params[1], n_steps_per_day)
     
-
     # Produce a set of case curves that will be associated with a sample index (and not actually selected for)
-    context_case_curves = Array{Array{Int32}}(undef, num_samples)
-    for i in 1:num_samples
-        context_case_curves[i] = case_curves[:, sample(1:size(case_curves, 2))]
-    end
+    context_case_curves = make_context_case_curves(case_curves, num_samples)
 
     # Data shared to all model runs
     context = model_context(
@@ -58,7 +53,11 @@ function run_inference_refine(
     for i in eachindex(thresholds)
         println(thresholds[i])
         if i > 1
+            println("Failed at step ", i - 1)
             println("Previous acceptance probability: ", n_accepted[i - 1] / (n_rejected[i - 1] + n_accepted[i - 1]) )
+            println("Starting at step ", i, " with threshold value ", thresholds[i])
+        else
+            println("Starting at step ", i, " with threshold value ", thresholds[i])
         end
 
         # Split into threads. Try to produce num_samples outputs

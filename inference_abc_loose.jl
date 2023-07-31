@@ -1,10 +1,13 @@
 
 
-
-# The primary function for calling from R
-function run_inference(
+function run_inference_loose(
     n_days,
     n_steps_per_day,
+
+    num_particles,
+    num_threshold_steps,
+    omega,
+    num_stochastic_samples,
 
     case_curves,
 
@@ -14,17 +17,14 @@ function run_inference(
     true_occupancy_matrix
 )
     # Julia and R do not play along nicely with these parameters. Ensure they are rounded integers.
-    n_days = round(Int32, n_days)
-    n_steps_per_day = round(Int32, n_steps_per_day)
+    n_days = round(Int, n_days)
+    n_steps_per_day = round(Int, n_steps_per_day)
+
+    num_particles = round(Int, num_particles)
+    num_threshold_steps = round(Int, num_threshold_steps)
+    num_stochastic_samples = round(Int, num_stochastic_samples)
 
     n_steps = n_days * n_steps_per_day
-
-    num_particles = 1000
-    num_thresholds = 4
-
-
-    omega = 3.0
-    num_stochastic_samples = 100
     num_candidates = round(Int, num_particles + num_particles * omega)
 
     # Load in the bootstrapped data
@@ -34,10 +34,7 @@ function run_inference(
     samples_cache = make_cached_samples(group_params[1], n_steps_per_day)
 
     # Produce a set of case curves that will be associated with a sample index (and not actually selected for)
-    context_case_curves = Array{Array{Int32}}(undef, num_candidates)
-    for i in 1:num_candidates
-        context_case_curves[i] = case_curves[:, sample(1:size(case_curves, 2))]
-    end
+    context_case_curves = make_context_case_curves(case_curves, num_candidates)
 
     context = model_context(
         n_steps_per_day, n_steps, n_days,
@@ -45,23 +42,25 @@ function run_inference(
         samples_cache, context_case_curves
     )
 
-
+    # Define model priors and perturbation kernels
     model_priors = [Normal(0, 1), Normal(0, 1), Normal(-8, 2)]
     model_perturbs = [Normal(0, 0.1), Normal(0, 0.1), Normal(0, 0.1)]
 
-    sigma = Array{Vector{Float64}, 2}(undef, num_thresholds, num_particles)
-    weights = zeros(num_thresholds, num_particles)
+    # Arrays to hold particle parameters (sigma) and weights
+    sigma = Array{Vector{Float64}, 2}(undef, num_threshold_steps, num_particles)
+    weights = zeros(num_threshold_steps, num_particles)
 
-
-
-    candidate_errors = zeros(num_thresholds, num_candidates)
+    # Arrays to hold candidate parameter values for each threshold step
+    candidate_errors = zeros(num_threshold_steps, num_candidates)
     candidate_sigmas = Array{Vector{Float64}}(undef, num_candidates)
 
+    # Hold best candidate occupancies for final threshold step
     candidate_occupancies = zeros(num_candidates, n_days, 3)
 
-    for i in 1:num_thresholds
-        println("Threshold $i...")
+    for i in 1:num_threshold_steps
+        println("Running threshold $i...")
         Threads.@threads for p in 1:num_candidates
+            # Get parameter values from prior (first step) or from particle cloud (after first step)
             if i == 1
                 candidate_sigmas[p] = create_prior(model_priors)
             else
@@ -70,8 +69,11 @@ function run_inference(
                 candidate_sigmas[p] = perturb_parameters(sigma[i - 1, particle_ix_sample], model_perturbs)
             end
 
+            # Fixed maximum value for log_importation_rate
             candidate_sigmas[p][3] = min(candidate_sigmas[p][3], -5.0)
 
+            # Run num_stochastic_samples runs with given parameters,
+            # selecting the parameter set with the lowest error
             best_candidate = model_process(p, candidate_sigmas[p], context, Random.MersenneTwister())
             candidate_errors[i, p] = get_error(best_candidate, true_occupancy_matrix, n_days, n_steps_per_day)
 
@@ -85,7 +87,8 @@ function run_inference(
                 end
             end
 
-            if i == num_thresholds
+            # For the final step, save occupancies from the best candidate run
+            if i == num_threshold_steps
                 for d in 1:n_days
                     t = (d - 1) * n_steps_per_day + 1
                     candidate_occupancies[p, d, 1] = get_total_ward_occupancy(best_candidate, t, d)
@@ -95,8 +98,9 @@ function run_inference(
             end
         end
 
+        # Sort candidates by their error value,
+        # then select the best n = num_particles performing candidates
         error_perm = sortperm(candidate_errors[i, :])
-
         for (ix_to, ix_from) in pairs(error_perm[1:num_particles])
             sigma[i, ix_to] = candidate_sigmas[ix_from]
 
@@ -140,7 +144,7 @@ function run_inference(
     )
 
     for p in 1:num_particles
-        for i in 1:num_thresholds
+        for i in 1:num_threshold_steps
             push!(
                 parameters_output,
                 Dict(
@@ -205,91 +209,3 @@ function get_error(state, true_occupancy, n_days, n_steps_per_day)
 end
 
 
-
-function read_group_parameter_samples(group_parameters_table)
-
-    n_samples = round(Int32, maximum(group_parameters_table.sample))
-    println("Reading in $n_samples group_parameters across $def_n_age_groups age groups")
-
-    out_samples = Vector{Vector{group_parameters}}(undef, n_samples)
-
-    for i in 1:n_samples
-        out_samples[i] = Vector{group_parameters}(undef, def_n_age_groups)
-    end
-
-    for row in eachrow(group_parameters_table)
-        i_sample = round(Int32, row.sample)
-        i_age_group = findfirst(x -> x == row.age_group, age_groups)
-
-        out_samples[i_sample][i_age_group] = group_parameters(
-            row.pr_ward_to_discharge,
-            row.pr_ward_to_ICU,
-
-            row.pr_ICU_to_discharge,
-            row.pr_ICU_to_postICU,
-
-            row.pr_postICU_to_death,
-        
-            Gamma(row.shape_onset_to_ward, row.scale_onset_to_ward),
-            
-            Gamma(row.shape_ward_to_discharge, row.scale_ward_to_discharge),
-            Gamma(row.shape_ward_to_death, row.scale_ward_to_death),
-            Gamma(row.shape_ward_to_ICU, row.scale_ward_to_ICU),
-            
-            Gamma(row.shape_ICU_to_death, row.scale_ICU_to_death),
-            Gamma(row.shape_ICU_to_discharge, row.scale_ICU_to_discharge),
-            Gamma(row.shape_ICU_to_postICU, row.scale_ICU_to_postICU),
-
-            Gamma(row.shape_postICU_to_death, row.scale_postICU_to_death),
-            Gamma(row.shape_postICU_to_discharge, row.scale_postICU_to_discharge)
-        )
-    end
-
-    return out_samples
-end
-
-
-function read_time_varying_estimates(time_varying_estimates_table, n_days)
-
-    n_days = round(Int32, n_days)
-
-    n_samples = round(Int32, maximum(time_varying_estimates_table.bootstrap))
-    println("Reading in $n_samples time-varying estimate samples across $def_n_age_groups age groups")
-
-    out_samples = Vector{}(undef, n_samples)
-
-    for i in 1:n_samples
-        out_samples[i] = (
-            pr_age_given_case = zeros(def_n_age_groups, n_days),
-            pr_hosp = zeros(def_n_age_groups, n_days),
-            pr_ICU = zeros(def_n_age_groups, n_days)
-        )
-    end
-
-
-    for row in eachrow(time_varying_estimates_table)
-        i_sample = round(Int32, row.bootstrap)
-        i_age_group = findfirst(x -> x == row.age_group, age_groups)
-        i_t = round(Int32, row.t)
-
-        out_samples[i_sample].pr_age_given_case[i_age_group, i_t] = row.pr_age_given_case
-        out_samples[i_sample].pr_hosp[i_age_group, i_t] = row.pr_hosp
-        out_samples[i_sample].pr_ICU[i_age_group, i_t] = row.pr_ICU
-    end
-
-
-
-    return out_samples
-    
-end
-
-# Returns the 'forecast start day'
-# Defined as the latest day with occupancy data
-function get_forecast_start_day(occ_data)
-    for i in reverse(2:length(occ_data))
-        if occ_data[i] < -0.5 && occ_data[i - 1] > -0.5
-            return i - 1
-        end
-    end
-    return -1
-end
