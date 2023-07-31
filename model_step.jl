@@ -60,31 +60,3 @@ function model_step_t(t, d, p_ix, a, rng, state, ctx, group_params, group_sample
     )
 
 end
-
-function do_reject_output(state, true_occupancy_matrix, threshold, n_days, n_steps_per_day)
-
-    rejected = false
-    
-    for d in 1:n_days
-        t = (d - 1) * n_steps_per_day + 1
-        if true_occupancy_matrix[d, 1] > -0.5
-
-            sim_ward = get_total_ward_occupancy(state, t, d)
-            sim_ICU = get_total_ICU_occupancy(state, t)
-
-            known_ward = true_occupancy_matrix[d, 1]
-            known_ICU = true_occupancy_matrix[d, 2]
-
-            error_ward = abs(known_ward - sim_ward)
-            error_ICU = abs(known_ICU - sim_ICU)
-
-            if error_ward > max(known_ward * threshold, 2) || error_ICU > max(known_ICU * threshold * 1.5, 4)
-                rejected = true
-
-                break
-            end
-        end
-    end
-
-    return rejected
-end

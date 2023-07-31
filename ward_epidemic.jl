@@ -21,7 +21,7 @@ function run_ward_epidemic!(epidemic, n_days, case_curve, log_importation_rate, 
                 S = ward_steady_state_size
             end
     
-            rate_new_I = 50.0 * importation_rate_standardised
+            rate_new_I = 50.0 * importation_rate_standardised * (I == 0)
             rate_S_to_E = S * I * 0.9 / (I + S + 1e-10)
             rate_E_to_I = E * 0.3
             rate_I_to_Q = I * 0.5

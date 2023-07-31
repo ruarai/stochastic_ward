@@ -16,6 +16,7 @@ function create_prior(model_priors)
     return [adj_pr_hosp, adj_los, log_ward_importation_rate]
 end
 
+
 function create_model_state(params, n_steps, n_days)
     return model_state(
         zeros(def_n_age_groups, n_steps, def_n_compartments, def_n_slots),
